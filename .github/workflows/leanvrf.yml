@@ -1,0 +1,359 @@
+name: Verify Adversarial Lean Proof
+
+on:
+  workflow_call:
+    inputs:
+      theorem:
+        description: "The Lean theorem identifier to verify"
+        required: true
+        type: string
+      challenge_url:
+        description: "HTTPS URL to untrusted Challenge.lean"
+        required: true
+        type: string
+      solution_url:
+        description: "HTTPS URL to untrusted Solution.lean"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  # =========================================================================
+  # JOB 1: DUAL ISOLATED UNTRUSTED EXPORT & TRUSTED COMPARATOR CALL
+  # =========================================================================
+  evaluate:
+    runs-on: ubuntu-latest
+    # TODO Immediately abort if scheduled on a self-hosted runner
+    # if: runner.environment == 'github-hosted'
+    permissions: {}
+    outputs:
+      challenge_sha: ${{ steps.digest.outputs.challenge_sha }}
+      solution_sha: ${{ steps.digest.outputs.solution_sha }}
+      verdict: ${{ steps.compare.outputs.verdict }}
+    steps:
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            bubblewrap jq curl coreutils python3-pip
+
+      # TODO: Create the container on ghcr.io
+      #       build with safe memory flags
+      # TODO: harden by verifying the container
+      - name: Provision Verifier Binaries from Toolchain Image
+        run: |
+          sudo mkdir -p /opt/lean /opt/bin /opt/schema
+          # Pull from your organization's pinned, immutable toolchain image
+          CONTAINER_ID=$(docker create ghcr.io/real-yfprojects/leanvrf-tools:v1)
+
+          # Extract Lean toolchain (for the bwrap sandbox)
+          sudo docker cp "$CONTAINER_ID:/opt/lean/." /opt/lean/
+          # Extract standalone verification binaries (for host Stage 3)
+          sudo docker cp "$CONTAINER_ID:/opt/bin/."  /opt/bin/
+
+          sudo docker cp "$CONTAINER_ID:/opt/schema/theorem-verification-v1.json" /opt/schema/
+          sudo docker rm "$CONTAINER_ID"
+
+          sudo chmod +x /opt/bin/* /opt/lean/bin/*
+
+      # TODO: Handle multi file challenges and solutions
+      # TODO: allow reaching solution via actions/checkout
+      - name: Fetch Untrusted Inputs & Calculate Hashes
+        id: digest
+        env:
+          CHALLENGE_URL: ${{ inputs.challenge_url }}
+          SOLUTION_URL: ${{ inputs.solution_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/raw_inputs
+
+          fetch_untrusted_file() {
+            local url="$1"
+            local dest_path="$2"
+
+            if [ -z "$url" ] || [ -z "$dest_path" ]; then
+                echo "Usage: fetch_untrusted_file <url> <destination_path> [max_time_sec] [max_bytes]" >&2
+                return 1
+            fi
+
+            # Ensure target directory exists and clear pre-existing target (mitigates symlink hijacking)
+            mkdir -p "$(dirname "$dest_path")"
+            rm -f "$dest_path"
+
+            # Execute hardened fetch:
+            # - Restrict initial protocol and redirects strictly to HTTPS
+            # - Enforce TLS 1.2+ minimum
+            # - Terminate on HTTP errors (--fail)
+            # - Bound download time and payload size to neutralize DoS/memory tarpits
+            # - Use '--' separator to prevent URL-based argument injection into curl
+            if ! curl \
+                --proto '=https' \
+                --proto-redir '=https' \
+                --tlsv1.2 \
+                --fail \
+                --silent \
+                --show-error \
+                --location \
+                -o "$dest_path" \
+                -- "$url"; then
+                echo "Error: Failed to safely fetch '$url'" >&2
+                rm -f "$dest_path"
+                return 1
+            fi
+
+            # Defensive assertion: Verify destination is a regular file and not a symlink/FIFO
+            if [ ! -f "$dest_path" ] || [ -L "$dest_path" ]; then
+                echo "Security violation: Downloaded destination is invalid or not a regular file." >&2
+                rm -f "$dest_path"
+                return 1
+            fi
+            }
+
+          # Define paths
+          CHALLENGE_FILE="/tmp/raw_inputs/Challenge.lean"
+          SOLUTION_FILE="/tmp/raw_inputs/Solution.lean"
+
+          # Fetch both untrusted files safely
+          fetch_untrusted_file "$CHALLENGE_URL" "$CHALLENGE_FILE"
+          fetch_untrusted_file "$SOLUTION_URL"  "$SOLUTION_FILE"
+
+          echo "challenge_sha=$(sha256sum "$CHALLENGE_FILE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "solution_sha=$(sha256sum "$SOLUTION_FILE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # SANDBOXED Export Challenge AST
+      # -----------------------------------------------------------------------
+      - name: Compile & Export ASTs
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/exports
+
+          sandboxed_lean4export() {
+            local input_file="$1"
+            local output_file="$2"
+
+            if [ -z "$input_file" ] || [ -z "$output_file" ]; then
+                echo "Usage: sandboxed_lean4export <input_lean_file> <output_export_file>" >&2
+                return 1
+            fi
+
+            # 1. Ensure host target exists as an empty, regular file
+            rm -f "$output_file"
+            touch "$output_file"
+
+            # 2. Execute in sealed Bubblewrap jail
+            bwrap \
+                --unshare-all \
+                --unshare-net \
+                --die-with-parent \
+                --ro-bind /usr /usr \
+                --ro-bind /lib /lib \
+                --ro-bind /lib64 /lib64 \
+                --ro-bind /bin /bin \
+                --ro-bind /opt/lean /opt/lean \
+                --ro-bind "$input_file" /input/source.lean:ro \
+                --tmpfs /tmp \
+                --tmpfs /scratch \
+                --bind "$output_file" /out/target.export \
+                --proc /proc \
+                --dev /dev \
+                --chdir /scratch \
+                env -i PATH="/opt/lean/bin:/bin:/usr/bin" HOME="/tmp" \
+                timeout --kill-after=5s 60s \
+                lean4export /input/source.lean /out/target.export
+
+            # 3. Defensive check: verify regular file and not a symlink/FIFO
+            if [ ! -f "$output_file" ] || [ -L "$output_file" ]; then
+                echo "Security violation: Export output is missing or an invalid file descriptor." >&2
+                return 1
+            fi
+
+            # 4. Stream sanitation check
+            # - Rejects lines exceeding 4096 chars (buffer safety)
+            # - Rejects integer indices > 2^32 - 1 (integer overflow mitigation)
+            # - Rejects non-printable/binary control bytes
+            LC_ALL=C awk '
+                /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/ {
+                print "Sanitation error: Non-ASCII/binary byte detected at line " NR > "/dev/stderr";
+                exit 1;
+                }
+                length($0) > 4096 {
+                print "Sanitation error: Line " NR " exceeds length limit (4096)" > "/dev/stderr";
+                exit 1;
+                }
+                $1 ~ /^[0-9]+$/ && $1 > 4294967295 {
+                print "Sanitation error: 32-bit index overflow at line " NR > "/dev/stderr";
+                exit 1;
+                }
+            ' "$output_file"
+            }
+
+          # Execute the export wrapper provided inside /opt/bin (not from caller workspace)
+          sandboxed_lean4export /tmp/raw_inputs/Challenge.lean /tmp/exports/challenge.export
+          sandboxed_lean4export /tmp/raw_inputs/Solution.lean  /tmp/exports/solution.export
+
+      # -----------------------------------------------------------------------
+      # Trusted Comparator & Independent Kernel Check
+      # (Consumes only inert .export files; no code execution possible)
+      # -----------------------------------------------------------------------
+      - name: Run Trusted Multi-Kernel Verification & Comparator
+        id: compare
+        env:
+          THEOREM: ${{ inputs.theorem }}
+        run: |
+          set -euo pipefail
+
+          # Assert Lean compiler is absent from host PATH
+          if command -v lean || command -v lake; then
+            echo "Security violation: Lean compiler detected on host."
+            exit 1
+          fi
+
+          AXIOMS="propext,Quot.sound,Classical.choice"
+
+          # Helper function to run any verifier in a pristine, sealed sandbox
+          run_sandboxed_verifier() {
+            local binary="$1"
+            shift
+
+            bwrap \
+                --unshare-all \
+                --unshare-net \
+                --die-with-parent \
+                --ro-bind /usr /usr \
+                --ro-bind /lib /lib \
+                --ro-bind /lib64 /lib64 \
+                --ro-bind /bin /bin \
+                --ro-bind /opt/bin /opt/bin:ro \
+                --ro-bind /tmp/exports /exports:ro \
+                --tmpfs /tmp \
+                --proc /proc \
+                --dev /dev \
+                --chdir /tmp \
+                env -i PATH="/bin:/usr/bin:/opt/bin" HOME="/tmp" \
+                "$binary" "$@"
+            }
+
+          echo "=== 1/3: Structural AST Equivalence (comparator) ==="
+          run_sandboxed_verifier /opt/bin/comparator \
+          --mode export \
+          --challenge-export /exports/challenge.export \
+          --solution-export /exports/solution.export \
+          --theorem "$THEOREM" \
+          --allowed-axioms "$AXIOMS"
+
+          echo "=== 2/3: Independent Rust Kernel (nanoda) ==="
+          run_sandboxed_verifier /opt/bin/nanoda_bin \
+          --allowed-axioms "$AXIOMS" \
+          /exports/solution.export
+
+          echo "=== 3/3: Formally Verified Kernel (lean4lean) ==="
+          run_sandboxed_verifier /opt/bin/lean4lean \
+          --export \
+          --allowed-axioms="$AXIOMS" \
+          /exports/solution.export
+
+          # Only the parent runner process reaches this line if all 3 jails exit 0
+          echo "verdict=SUCCESS" >> "$GITHUB_OUTPUT"
+
+  # =========================================================================
+  # JOB 2: ATTESTATION (Privileged; isolated from all execution environments)
+  # =========================================================================
+  attest:
+    needs: evaluate
+    if: needs.evaluate.outputs.verdict == 'SUCCESS'
+    runs-on: ubuntu-latest
+    # TODO Immediately abort if scheduled on a self-hosted runner
+    # if: runner.environment == 'github-hosted'
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+      # this writes the attestation statement to some overview page on gh
+      artifact-metadata: write # optional
+    steps:
+      # TODO harden by sourcing the package from the toolchain container
+      - name: Install Validation Tools
+        run: pipx install check-jsonschema
+
+      - name: Provision Verification Schema
+        run: |
+          sudo mkdir -p /opt/schema
+          CONTAINER_ID=$(docker create ghcr.io/your-org/lean-verifier-tools:v1)
+          sudo docker cp "$CONTAINER_ID:/opt/schema/theorem-verification-v1.json" /opt/schema/
+          sudo docker rm "$CONTAINER_ID"
+
+      # TODO configure correct verifier id
+      # TODO understand policy_uri
+      # TODO dynamic toolchain digest: better attestation chaining with inputAttestations
+      # TODO dynamic engine commit hashes from the toolchain container
+      # TODO scheme file name
+      # TODO schema: verifier.version dependencyLevels + missing SLSA Provenance v1.0 Primitives
+      - name: Build Lean-Extended VSA Predicate
+        env:
+          THEOREM: ${{ inputs.theorem }}
+          CHALLENGE_SHA: ${{ needs.evaluate.outputs.challenge_sha }}
+          SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
+          SOLUTION_URL: ${{ inputs.solution_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/attest
+
+          TOOLCHAIN_DIGEST="sha256:d8a29b4e724efb1e843c0d603a118e95c11030e8c7512d7b1b3699bce866a2cb"
+
+          jq -n \
+            --arg verifier_id "https://github.com/your-org/verifier-repo/.github/workflows/verify.yml@refs/heads/main" \
+            --arg time_verified "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg resource_uri "$SOLUTION_URL" \
+            --arg policy_uri "urn:lean:policy:${THEOREM}" \
+            --arg challenge_sha "$CHALLENGE_SHA" \
+            --arg solution_sha "$SOLUTION_SHA" \
+            --arg theorem "$THEOREM" \
+            --arg toolchain_digest "$TOOLCHAIN_DIGEST" \
+            '{
+              verifier: { id: $verifier_id },
+              timeVerified: $time_verified,
+              resourceUri: $resource_uri,
+              policy: {
+                uri: $policy_uri,
+                digest: { sha256: $challenge_sha }
+              },
+              verificationResult: "PASSED",
+              verifiedLevels: ["SLSA_BUILD_LEVEL_3"],
+              slsaVersion: "v1.0",
+              lean: {
+                theorem: $theorem,
+                challenge_sha256: $challenge_sha,
+                solution_sha256: $solution_sha,
+                lean_version: "v4.8.0",
+                toolchain_digest: $toolchain_digest,
+                allowed_axioms: ["propext", "Quot.sound", "Classical.choice"],
+                engines: [
+                  { name: "leanprover/comparator", commit: "3a4b5c6d7e8f901234567890abcdef1234567890", status: "PASSED" },
+                  { name: "flypitch/nanoda",       commit: "1a2b3c4d5e6f7890abcdef1234567890abcdef12", status: "PASSED" },
+                  { name: "digama0/lean4lean",     commit: "9f8e7d6c5b4a3210fedcba0987654321fedcba09", status: "PASSED" }
+                ]
+              }
+            }' > /tmp/attest/predicate.json
+
+          # Strict schema validation
+          check-jsonschema --schemafile /opt/schema/lean-vsa-v1.json /tmp/attest/predicate.json
+
+      - name: Prepare Subjects
+        env:
+          CHALLENGE_SHA: ${{ needs.evaluate.outputs.challenge_sha }}
+          SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
+        run: |
+          cat <<EOF > /tmp/attest/subjects.checksums
+          $CHALLENGE_SHA  Challenge.lean
+          $SOLUTION_SHA   Solution.lean
+          EOF
+
+      - name: Sign & Mint Attestation
+        uses: actions/attest@v4
+        with:
+          subject-checksums: /tmp/attest/subjects.checksums
+          predicate-type: "urn:leanvrf:v1"
+          predicate-path: /tmp/attest/predicate.json
+
+    # TODO: prevent custom runners

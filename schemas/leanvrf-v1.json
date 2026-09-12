@@ -1,0 +1,171 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "urn:leanvrf:v1",
+    "title": "LeanVerificationSummaryAttestation",
+    "type": "object",
+    "required": [
+        "verifier",
+        "timeVerified",
+        "resourceUri",
+        "policy",
+        "verificationResult",
+        "verifiedLevels",
+        "slsaVersion",
+        "lean"
+    ],
+    "properties": {
+        "verifier": {
+            "type": "object",
+            "required": [
+                "id"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Canonical URI of the verifier workflow (e.g., https://github.com/org/repo/.github/workflows/verify.yml@refs/heads/main)"
+                }
+            },
+            "additionalProperties": false
+        },
+        "timeVerified": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339 timestamp when verification completed"
+        },
+        "resourceUri": {
+            "type": "string",
+            "description": "URI of the untrusted solution source or repository"
+        },
+        "policy": {
+            "type": "object",
+            "required": [
+                "uri",
+                "digest"
+            ],
+            "properties": {
+                "uri": {
+                    "type": "string",
+                    "description": "Identifier of the challenge or verification policy"
+                },
+                "digest": {
+                    "type": "object",
+                    "required": [
+                        "sha256"
+                    ],
+                    "properties": {
+                        "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-fA-F0-9]{64}$",
+                            "description": "SHA-256 hash of Challenge.lean"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "verificationResult": {
+            "type": "string",
+            "enum": [
+                "PASSED",
+                "FAILED"
+            ],
+            "description": "Standard SLSA VSA result string"
+        },
+        "verifiedLevels": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "SLSA levels satisfied (e.g. SLSA_BUILD_LEVEL_3)"
+        },
+        "slsaVersion": {
+            "type": "string",
+            "enum": [
+                "v1.0"
+            ]
+        },
+        "lean": {
+            "type": "object",
+            "required": [
+                "theorem",
+                "challenge_sha256",
+                "solution_sha256",
+                "lean_version",
+                "toolchain_digest",
+                "allowed_axioms",
+                "engines"
+            ],
+            "properties": {
+                "theorem": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_.]+$",
+                    "description": "Exact fully-qualified Lean identifier"
+                },
+                "challenge_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-fA-F0-9]{64}$"
+                },
+                "solution_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-fA-F0-9]{64}$"
+                },
+                "lean_version": {
+                    "type": "string",
+                    "description": "Lean compiler release or git commit (e.g. leanprover/lean4:v4.8.0)"
+                },
+                "toolchain_digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-fA-F0-9]{64}$",
+                    "description": "Exact immutable SHA256 digest of the verifier container image"
+                },
+                "allowed_axioms": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Whitelist of permitted axioms"
+                },
+                "used_axioms": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Axioms actually traversed in the proof AST"
+                },
+                "engines": {
+                    "type": "array",
+                    "minItems": 3,
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "name",
+                            "commit",
+                            "status"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "commit": {
+                                "type": "string",
+                                "pattern": "^[a-fA-F0-9]{40}$",
+                                "description": "Full Git commit hash of the engine source"
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "PASSED",
+                                    "FAILED"
+                                ]
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}
