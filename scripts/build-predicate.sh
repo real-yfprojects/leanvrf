@@ -9,7 +9,9 @@
 #   SOLUTION_SHA      SHA-256 of Solution.lean (hex)
 #   SOLUTION_URL      Where Solution.lean was fetched from
 #   VERIFIER_ID       Canonical URI of the workflow that ran the verification
-#   TOOLCHAIN_DIGEST  Immutable digest of the verifier toolchain image (sha256:...)
+#   TOOLCHAIN_LOCK    Path to toolchain.lock from the trusted checkout; its
+#                     sha256 becomes lean.toolchain_digest and its entries
+#                     populate lean.lean_version and lean.engines
 #   SCHEMA_FILE       Path to the leanvrf predicate JSON schema
 set -euo pipefail
 
@@ -19,17 +21,24 @@ if [ -z "$out" ]; then
     exit 1
 fi
 
-for var in THEOREM CHALLENGE_SHA SOLUTION_SHA SOLUTION_URL VERIFIER_ID TOOLCHAIN_DIGEST SCHEMA_FILE; do
+for var in THEOREM CHALLENGE_SHA SOLUTION_SHA SOLUTION_URL VERIFIER_ID TOOLCHAIN_LOCK SCHEMA_FILE; do
     if [ -z "${!var:-}" ]; then
         echo "Error: required environment variable $var is not set" >&2
         exit 1
     fi
 done
+if [ ! -f "$TOOLCHAIN_LOCK" ]; then
+    echo "Error: TOOLCHAIN_LOCK '$TOOLCHAIN_LOCK' does not exist" >&2
+    exit 1
+fi
 
 mkdir -p "$(dirname "$out")"
 
+# The lockfile is the single description of what ran; hashing it lets a verifier
+# reproduce exactly which Lean release and which verifier binaries were used.
+toolchain_digest="sha256:$(sha256sum "$TOOLCHAIN_LOCK" | awk '{print $1}')"
+
 # TODO understand policy_uri
-# TODO dynamic engine commit hashes from the toolchain container
 # TODO schema: verifier.version dependencyLevels + missing SLSA Provenance v1.0 Primitives
 jq -n \
   --arg verifier_id "$VERIFIER_ID" \
@@ -39,7 +48,8 @@ jq -n \
   --arg challenge_sha "$CHALLENGE_SHA" \
   --arg solution_sha "$SOLUTION_SHA" \
   --arg theorem "$THEOREM" \
-  --arg toolchain_digest "$TOOLCHAIN_DIGEST" \
+  --arg toolchain_digest "$toolchain_digest" \
+  --slurpfile lock "$TOOLCHAIN_LOCK" \
   '{
     verifier: { id: $verifier_id },
     timeVerified: $time_verified,
@@ -55,13 +65,13 @@ jq -n \
       theorem: $theorem,
       challenge_sha256: $challenge_sha,
       solution_sha256: $solution_sha,
-      lean_version: "v4.8.0",
+      lean_version: ("leanprover/lean4:" + $lock[0].lean.version),
       toolchain_digest: $toolchain_digest,
       allowed_axioms: ["propext", "Quot.sound", "Classical.choice"],
       engines: [
-        { name: "leanprover/comparator", commit: "3a4b5c6d7e8f901234567890abcdef1234567890", status: "PASSED" },
-        { name: "flypitch/nanoda",       commit: "1a2b3c4d5e6f7890abcdef1234567890abcdef12", status: "PASSED" },
-        { name: "digama0/lean4lean",     commit: "9f8e7d6c5b4a3210fedcba0987654321fedcba09", status: "PASSED" }
+        $lock[0].tools[]
+        | select(.engine == true)
+        | { name: .repo, commit: .commit, status: "PASSED" }
       ]
     }
   }' > "$out"

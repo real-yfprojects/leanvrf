@@ -1,0 +1,121 @@
+name: Build Verifier Tools
+
+# Maintainer-triggered. Builds every tool in toolchain.lock from source at its
+# pinned commit against the locked Lean release, attests build provenance for
+# the binaries, and publishes them as assets of an immutable GitHub release so
+# that leanvrf.yml can fetch them by URL + sha256.
+#
+# After a run: copy dist/toolchain.lock from the job summary (or the release
+# asset of the same name) over toolchain.lock in this repo and commit it. Until
+# then leanvrf.yml keeps failing hash verification on purpose.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish under (default: release_tag from toolchain.lock)"
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create the release and upload assets
+      id-token: write      # Sigstore signing for build provenance
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            jq zstd curl git file
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$(jq -er '.release_tag' toolchain.lock)}"
+          if ! [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid release tag '$tag'" >&2
+            exit 1
+          fi
+          # Releases are immutable: a URL in toolchain.lock must always resolve to the same bytes.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release '$tag' already exists; bump release_tag in toolchain.lock instead of overwriting." >&2
+            exit 1
+          fi
+          # Every tool URL in the lock must point at this release, or the published hashes are useless.
+          expected="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/"
+          jq -er --arg p "$expected" '
+            [.tools[] | select((.url | startswith($p)) and (.url == $p + .name))] | length == (.tools | length)
+          ' toolchain.lock >/dev/null || {
+            echo "toolchain.lock tool URLs do not all match $expected<name>" >&2
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Same provisioner leanvrf.yml uses, restricted to the Lean release itself.
+      - name: Provision locked Lean release
+        run: bash scripts/provision-toolchain.sh --lean-only toolchain.lock
+
+      # TODO: pin the Rust and Go toolchains (runner-provided today) for reproducibility.
+      - name: Build tools from pinned sources
+        run: |
+          set -euo pipefail
+          echo "rust: $(cargo --version)   go: $(go version)   lean: $(/opt/lean/bin/lean --version)"
+          bash scripts/build-tools.sh toolchain.lock dist
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*
+            !dist/toolchain.lock
+
+      - name: Publish release
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          lean_version="$(jq -er '.lean.version' toolchain.lock)"
+          {
+            echo "Verifier tools built from \`toolchain.lock\` at ${GITHUB_SHA} against Lean ${lean_version}."
+            echo
+            echo "| tool | source | commit |"
+            echo "|---|---|---|"
+            jq -r '.tools[] | "| \(.name) | https://github.com/\(.repo) | \(.commit) |"' toolchain.lock
+            echo
+            echo "Build provenance is attested; verify with"
+            echo "\`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`."
+          } > notes.md
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Verifier tools $TAG" \
+            --notes-file notes.md \
+            dist/*
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          {
+            echo "## Published $TAG"
+            echo
+            echo "Replace \`toolchain.lock\` with the following and commit:"
+            echo
+            echo '```json'
+            cat dist/toolchain.lock
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

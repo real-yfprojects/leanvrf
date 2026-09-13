@@ -18,14 +18,6 @@ on:
 
 permissions: {}
 
-env:
-  # TODO: Create the container on ghcr.io
-  #       build with safe memory flags
-  # TODO: harden by pinning the image by digest (...@sha256:...) instead of a tag
-  TOOLCHAIN_IMAGE: ghcr.io/real-yfprojects/leanvrf-tools:v1
-  # TODO dynamic toolchain digest: better attestation chaining with inputAttestations
-  TOOLCHAIN_DIGEST: sha256:d8a29b4e724efb1e843c0d603a118e95c11030e8c7512d7b1b3699bce866a2cb
-
 jobs:
   # =========================================================================
   # JOB 1: DUAL ISOLATED UNTRUSTED EXPORT & TRUSTED COMPARATOR CALL
@@ -58,21 +50,16 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends             bubblewrap jq curl coreutils
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+                       bubblewrap jq curl coreutils zstd
 
-      # TODO: harden by verifying the container
-      - name: Provision Verifier Binaries from Toolchain Image
-        run: |
-          sudo mkdir -p /opt/lean /opt/bin
-          CONTAINER_ID=$(docker create "$TOOLCHAIN_IMAGE")
-
-          # Extract Lean toolchain (for the bwrap sandbox)
-          sudo docker cp "$CONTAINER_ID:/opt/lean/." /opt/lean/
-          # Extract standalone verification binaries (for host Stage 3)
-          sudo docker cp "$CONTAINER_ID:/opt/bin/."  /opt/bin/
-          sudo docker rm "$CONTAINER_ID"
-
-          sudo chmod +x /opt/bin/* /opt/lean/bin/*
+      # Fetches the Lean release from leanprover/lean4 and the prebuilt verifier
+      # binaries from this repo's releases, each checked against the sha256 in
+      # toolchain.lock. The lockfile is part of the trusted checkout, so the
+      # attested job.workflow_sha pins the exact toolchain. Never cache this:
+      # actions/cache is scoped to the caller (prover) repository.
+      - name: Provision Pinned Toolchain
+        run: bash leanvrf/scripts/provision-toolchain.sh leanvrf/toolchain.lock
 
       # TODO: Handle multi file challenges and solutions
       # TODO: allow reaching solution via actions/checkout
@@ -227,6 +214,8 @@ jobs:
           SOLUTION_URL: ${{ inputs.solution_url }}
           # Identity of this reusable workflow; matches job_workflow_ref in the certificate
           VERIFIER_ID: https://github.com/${{ job.workflow_ref }}
+          # Same trusted checkout as the evaluate job; its sha256 is recorded as toolchain_digest
+          TOOLCHAIN_LOCK: leanvrf/toolchain.lock
           SCHEMA_FILE: leanvrf/schemas/leanvrf-v1.json
         run: bash leanvrf/scripts/build-predicate.sh /tmp/attest/predicate.json
 
