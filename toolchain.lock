@@ -16,7 +16,7 @@
       "target": "lean4export",
       "artifact": ".lake/build/bin/lean4export",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/lean4export",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "b96fdfe07615af1a4cb699a9c18688ab05a0b05fc7533af32a600c508b689280",
       "install": "toolchain",
       "engine": false
     },
@@ -29,7 +29,7 @@
       "target": "comparator",
       "artifact": ".lake/build/bin/comparator",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/comparator",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "11265c5e02cbd8cc4767c69a364a1377409eb73ac24dbb9511f3f3229b5e517c",
       "install": "verifier",
       "engine": true
     },
@@ -41,7 +41,7 @@
       "build": "cargo",
       "artifact": "target/release/nanoda_bin",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/nanoda_bin",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "cc588b12ba42498a47ba7a844644825ce30858452b2aa8170a4dd9220048b46e",
       "install": "verifier",
       "engine": true
     },
@@ -54,7 +54,7 @@
       "target": "lean4lean",
       "artifact": ".lake/build/bin/lean4lean",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/lean4lean",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "992083cb1d0d9f91ed33f2287c5e4019d31256873855560c010935c827754295",
       "install": "verifier",
       "engine": true
     },
@@ -66,7 +66,7 @@
       "build": "go",
       "package": "./cmd/landrun",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/landrun",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "cadca12ada763c7e9cf1de86225b6327356c6f0d816d3f634498015a8cb509e3",
       "install": "verifier",
       "engine": false
     }
