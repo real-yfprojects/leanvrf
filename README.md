@@ -67,6 +67,30 @@ This leaves the prover still with lots of attack vectors:
 - exploit soundness bugs in a specific lean kernel
 - and possibly many more.
 
+## Attestation contents
+
+The workflow signs an [in-toto Statement](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md)
+via `actions/attest`. What a verifier learns is split over two layers, and the split is deliberate:
+
+| Fact | Where it lives | Why there |
+|---|---|---|
+| Which workflow ran, at which commit (`job_workflow_ref`, `job_workflow_sha`) | Sigstore certificate (Fulcio extensions, `1.3.6.1.4.1.57264.1.9` / `.10`) | Comes from GitHub's OIDC token; cannot be forged by the prover |
+| GitHub-hosted vs. self-hosted runner (`runner_environment`) | Certificate (`1.3.6.1.4.1.57264.1.11`) | Same. A copy in the predicate would come from the runner context, which a self-hosted runner controls |
+| Prover's repository, ref, run URL, trigger | Certificate (`.12`-`.21`) | Same |
+| Time of signing | Certificate validity / Rekor `integratedTime` | Same |
+| Challenge and solution digests | Statement `subject` **and** predicate `challenge` / `solution` | `subject` lets `gh attestation verify <file>` find the attestation; the predicate copies bind each digest to its *role* (trusted challenge vs. untrusted solution) |
+| Theorem name, result, axiom policy, pinned toolchain | Predicate ([schemas/leanvrf-v1.json](schemas/leanvrf-v1.json)) | Computed by the trusted workflow code; not expressible in the certificate |
+
+The predicate therefore contains **no** workflow identity, runner type, repository or timestamp fields.
+A verifier MUST take those from the certificate and MUST NOT accept a predicate-supplied value in their place.
+The predicate's `policy` and `toolchain` blocks are fully determined by `job_workflow_sha`; they are repeated
+so that consumers can read what was checked without checking out this repository, and can be cross-checked
+against it via `toolchain.lock.digest.sha256`.
+
+Predicate type: `https://github.com/theproofnetwork/leanvrf/predicate/v1`.
+Artifact references use in-toto `ResourceDescriptor`s ([schemas/in-toto-v1.json](schemas/in-toto-v1.json)),
+with leanvrf-specific facts under `annotations`, in-toto's designated extension point.
+
 ## Toolchain pinning and tool releases
 
 The workflow never installs Lean or the verifier tools from a package manager, container tag or

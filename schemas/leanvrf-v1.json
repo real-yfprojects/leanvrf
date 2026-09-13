@@ -1,171 +1,126 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://github.com/theproofnetwork/leanvrf/predicate/v1",
-    "title": "LeanVerificationSummaryAttestation",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "leanvrf verification predicate v1",
+    "description": "Predicate type https://github.com/theproofnetwork/leanvrf/predicate/v1. States that the Lean theory `solution` proves the declaration `theorem` exactly as stated in the trusted Lean theory `challenge`, checked under `policy` with the pinned `toolchain`. The claim is only meaningful inside a Sigstore bundle whose certificate identifies the leanvrf reusable workflow; see README 'Attestation contents'.",
+    "$comment": "No $id on purpose: the relative $ref to in-toto-v1.json must resolve against this file's location on disk, not against a URL. -- The predicate deliberately omits everything the signing certificate already states authoritatively (workflow ref and sha, runner environment, repository, run URL, signing time). Those values would have to be copied from the GitHub runner context, which an attacker controls on a self-hosted runner, whereas the certificate values come from GitHub's OIDC token. Verifiers MUST read them from the certificate and MUST NOT look for them here.",
     "type": "object",
     "required": [
-        "verifier",
-        "timeVerified",
-        "resourceUri",
-        "policy",
         "verificationResult",
-        "verifiedLevels",
-        "slsaVersion",
-        "lean"
+        "theorem",
+        "challenge",
+        "solution",
+        "policy",
+        "toolchain"
     ],
     "properties": {
-        "verifier": {
-            "type": "object",
-            "required": [
-                "id"
-            ],
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "Canonical URI of the verifier workflow (e.g., https://github.com/org/repo/.github/workflows/verify.yml@refs/heads/main)"
-                }
-            },
-            "additionalProperties": false
-        },
-        "timeVerified": {
+        "verificationResult": {
             "type": "string",
-            "format": "date-time",
-            "description": "RFC 3339 timestamp when verification completed"
+            "enum": [ "PASSED", "FAILED" ],
+            "description": "Outcome of the verification. The workflow only signs PASSED predicates today, but verifiers MUST check this value explicitly rather than treating the existence of an attestation as success."
         },
-        "resourceUri": {
+        "theorem": {
             "type": "string",
-            "description": "URI of the untrusted solution source or repository"
+            "minLength": 1,
+            "pattern": "^[^\r\n]+$",
+            "description": "Fully-qualified Lean declaration name, exactly as passed to the comparator. The claim is about this name as declared in `challenge`; the solution must provide a matching declaration with an identical type."
+        },
+        "challenge": {
+            "$ref": "#/$defs/HashedFile",
+            "description": "Trusted Lean theory stating the theorem. The verifier trusts this file by digest, e.g. after auditing that it formalises the intended problem."
+        },
+        "solution": {
+            "$ref": "#/$defs/HashedFile",
+            "description": "Untrusted Lean theory supplied by the prover that claims to prove `theorem`."
         },
         "policy": {
             "type": "object",
-            "required": [
-                "uri",
-                "digest"
-            ],
+            "description": "Rules the verification was checked against. Fully determined by the workflow revision in the certificate; repeated here so consumers can read them without checking out the workflow repository.",
+            "required": [ "allowedAxioms" ],
             "properties": {
-                "uri": {
-                    "type": "string",
-                    "description": "Identifier of the challenge or verification policy"
-                },
-                "digest": {
-                    "type": "object",
-                    "required": [
-                        "sha256"
-                    ],
-                    "properties": {
-                        "sha256": {
-                            "type": "string",
-                            "pattern": "^[a-fA-F0-9]{64}$",
-                            "description": "SHA-256 hash of Challenge.lean"
-                        }
+                "allowedAxioms": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
                     },
-                    "additionalProperties": false
+                    "description": "Axioms the solution may depend on. Every kernel run rejects the solution if it uses any other axiom (or sorry)."
                 }
             },
             "additionalProperties": false
         },
-        "verificationResult": {
-            "type": "string",
-            "enum": [
-                "PASSED",
-                "FAILED"
-            ],
-            "description": "Standard SLSA VSA result string"
-        },
-        "verifiedLevels": {
-            "type": "array",
-            "items": {
-                "type": "string"
-            },
-            "description": "SLSA levels satisfied (e.g. SLSA_BUILD_LEVEL_3)"
-        },
-        "slsaVersion": {
-            "type": "string",
-            "enum": [
-                "v1.0"
-            ]
-        },
-        "lean": {
+        "toolchain": {
             "type": "object",
-            "required": [
-                "theorem",
-                "challenge_sha256",
-                "solution_sha256",
-                "lean_version",
-                "toolchain_digest",
-                "allowed_axioms",
-                "engines"
-            ],
+            "description": "The pinned Lean release and verifier binaries that performed the check, as listed in toolchain.lock of the workflow revision in the certificate.",
+            "required": [ "lock", "lean", "tools" ],
             "properties": {
-                "theorem": {
-                    "type": "string",
-                    "pattern": "^[a-zA-Z0-9_.]+$",
-                    "description": "Exact fully-qualified Lean identifier"
+                "lock": {
+                    "$ref": "#/$defs/HashedFile",
+                    "description": "toolchain.lock from the trusted checkout. Its digest lets a verifier confirm `lean` and `tools` against the workflow repository with a single comparison."
                 },
-                "challenge_sha256": {
-                    "type": "string",
-                    "pattern": "^[a-fA-F0-9]{64}$"
+                "lean": {
+                    "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+                    "description": "Lean release used to elaborate and export both theories.",
+                    "required": [ "name", "uri", "digest", "annotations" ],
+                    "properties": {
+                        "digest": { "required": [ "sha256" ] },
+                        "annotations": {
+                            "required": [ "version" ],
+                            "properties": {
+                                "version": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Lean release tag, e.g. v4.8.0."
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    }
                 },
-                "solution_sha256": {
-                    "type": "string",
-                    "pattern": "^[a-fA-F0-9]{64}$"
-                },
-                "lean_version": {
-                    "type": "string",
-                    "description": "Lean compiler release or git commit (e.g. leanprover/lean4:v4.8.0)"
-                },
-                "toolchain_digest": {
-                    "type": "string",
-                    "pattern": "^sha256:[a-fA-F0-9]{64}$",
-                    "description": "Exact immutable SHA256 digest of the verifier container image"
-                },
-                "allowed_axioms": {
+                "tools": {
                     "type": "array",
+                    "minItems": 1,
+                    "description": "Prebuilt binaries that exported the theories and independently checked the solution. Entries flagged `engine` are the checkers the 1-out-of-n trust assumption ranges over.",
                     "items": {
-                        "type": "string"
-                    },
-                    "description": "Whitelist of permitted axioms"
-                },
-                "used_axioms": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Axioms actually traversed in the proof AST"
-                },
-                "engines": {
-                    "type": "array",
-                    "minItems": 3,
-                    "items": {
-                        "type": "object",
-                        "required": [
-                            "name",
-                            "commit",
-                            "status"
-                        ],
+                        "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+                        "required": [ "name", "uri", "digest", "annotations" ],
                         "properties": {
-                            "name": {
-                                "type": "string"
-                            },
-                            "commit": {
-                                "type": "string",
-                                "pattern": "^[a-fA-F0-9]{40}$",
-                                "description": "Full Git commit hash of the engine source"
-                            },
-                            "status": {
-                                "type": "string",
-                                "enum": [
-                                    "PASSED",
-                                    "FAILED"
-                                ]
+                            "digest": { "required": [ "sha256" ] },
+                            "annotations": {
+                                "required": [ "repository", "commit", "engine" ],
+                                "properties": {
+                                    "repository": {
+                                        "type": "string",
+                                        "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+                                        "description": "GitHub owner/repo the binary was built from."
+                                    },
+                                    "commit": {
+                                        "$ref": "in-toto-v1.json#/$defs/gitOid",
+                                        "description": "Source commit the binary was built from."
+                                    },
+                                    "engine": {
+                                        "type": "boolean",
+                                        "description": "true for tools whose verdict the result depends on (comparator and the independent kernels); false for supporting tools (exporter, sandbox helper). The 1-out-of-n trust assumption ranges over the engines."
+                                    }
+                                },
+                                "additionalProperties": false
                             }
-                        },
-                        "additionalProperties": false
+                        }
                     }
                 }
             },
             "additionalProperties": false
         }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "$defs": {
+        "HashedFile": {
+            "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+            "description": "A ResourceDescriptor that must name the file and carry its sha256, so a verifier can bind it to a file they hold.",
+            "required": [ "name", "digest" ],
+            "properties": {
+                "digest": { "required": [ "sha256" ] }
+            }
+        }
+    }
 }
