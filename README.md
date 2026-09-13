@@ -67,6 +67,52 @@ This leaves the prover still with lots of attack vectors:
 - exploit soundness bugs in a specific lean kernel
 - and possibly many more.
 
+## Toolchain pinning and tool releases
+
+The workflow never installs Lean or the verifier tools from a package manager, container tag or
+Actions cache. Everything comes from [toolchain.lock](toolchain.lock), which is read from the trusted
+checkout at `job.workflow_sha` and therefore fixed by the attested workflow identity:
+
+- `lean` points at an official `leanprover/lean4` release tarball and its sha256.
+- `tools` lists the prebuilt binaries (`lean4export`, `comparator`, `nanoda_bin`, `lean4lean`, `landrun`)
+  with their source repository, the exact commit they were built from, the build recipe, the download
+  URL and the sha256 of the resulting binary.
+
+[scripts/provision-toolchain.sh](scripts/provision-toolchain.sh) downloads each artifact over HTTPS and
+rejects it unless the hash matches; the hash of the lockfile itself ends up in the predicate as
+`toolchain.lock.digest.sha256`. Caching is deliberately avoided: in a reusable workflow `actions/cache`
+is scoped to the *caller's* repository, i.e. the prover's, and could be seeded with tampered binaries.
+
+### Building and publishing the tools
+
+The tool binaries are built by [build-tools.yml](.github/workflows/build-tools.yml)
+(`workflow_dispatch`, maintainers only) via [scripts/build-tools.sh](scripts/build-tools.sh):
+each tool is cloned at its pinned commit and compiled against the locked Lean release itself
+(not via `elan`), so the Lean-based tools accept exactly the `.olean` files the verification
+workflow produces. The binaries get an `actions/attest-build-provenance` attestation and are
+attached to a GitHub release. The run's summary prints a copy of `toolchain.lock` with the real
+hashes filled in; committing that copy is how a new toolchain is rolled out.
+
+### Release tag scheme
+
+Tool releases are tagged `tools-<lean version>-<build number>`, e.g. `tools-v4.33.0-1`:
+
+| Part | Meaning |
+|---|---|
+| `tools-` | Separates tool releases from releases of the workflow itself. |
+| `v4.33.0` | The Lean release the binaries were built against. Lean-based tools embed the compiler's githash and reject `.olean`s from any other version, so a Lean bump always means a new set of binaries. |
+| `-1` | Build counter within that Lean version. Bumped whenever anything else changes (a tool commit, a build fix, a toolchain used for building) without Lean changing. |
+
+The tag is not semver and nothing interprets it; it exists to be **immutable** and **readable**.
+`build-tools.yml` refuses to publish if the release already exists, and it checks that every `url`
+in the lockfile points at `releases/download/<release_tag>/<name>` before building. To ship new
+binaries, bump `release_tag` in `toolchain.lock` (which changes the five URLs with it), run the
+build workflow, and commit the lockfile it prints.
+
+Security does not depend on the tag: `provision-toolchain.sh` enforces the sha256 next to each URL,
+and the whole lockfile is hashed into the attestation. A tag that was deleted and recreated with
+different assets simply fails verification.
+
 <!-- TODO Document usage -->
 <!-- TODO Document security considerations and mitigations -->
 <!-- TODO verifier script -->
