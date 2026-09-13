@@ -18,6 +18,13 @@ on:
 
 permissions: {}
 
+env:
+  # Axiom whitelist enforced by every engine. Defined once so the value the
+  # kernels ran with is the same value recorded in the predicate's policy.
+  ALLOWED_AXIOMS: propext,Quot.sound,Classical.choice
+  # in-toto predicate type of the attestation; schema in schemas/leanvrf-v1.json
+  PREDICATE_TYPE: https://github.com/theproofnetwork/leanvrf/predicate/v1
+
 jobs:
   # =========================================================================
   # JOB 1: DUAL ISOLATED UNTRUSTED EXPORT & TRUSTED COMPARATOR CALL
@@ -109,7 +116,7 @@ jobs:
             exit 1
           fi
 
-          AXIOMS="propext,Quot.sound,Classical.choice"
+          AXIOMS="$ALLOWED_AXIOMS"
           SANDBOX=leanvrf/scripts/sandboxed-verifier.sh
 
           echo "=== 1/3: Structural AST Equivalence (comparator) ==="
@@ -161,15 +168,19 @@ jobs:
       - name: Install Validation Tools
         run: pipx install check-jsonschema
 
-      - name: Build Lean-Extended VSA Predicate
+      # The predicate carries only the verification claim and the toolchain
+      # facts. Workflow identity, runner environment, repository and run id are
+      # NOT passed in: the certificate minted below states them from GitHub's
+      # OIDC token, and verifiers must read them from there (README
+      # "Attestation contents").
+      - name: Build Verification Predicate
         env:
           THEOREM: ${{ inputs.theorem }}
+          CHALLENGE_URL: ${{ inputs.challenge_url }}
           CHALLENGE_SHA: ${{ needs.evaluate.outputs.challenge_sha }}
-          SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
           SOLUTION_URL: ${{ inputs.solution_url }}
-          # Identity of this reusable workflow; matches job_workflow_ref in the certificate
-          VERIFIER_ID: https://github.com/${{ job.workflow_ref }}
-          # Same trusted checkout as the evaluate job; its sha256 is recorded as toolchain_digest
+          SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
+          # Same trusted checkout as the evaluate job; expanded into the toolchain block
           TOOLCHAIN_LOCK: leanvrf/toolchain.lock
           SCHEMA_FILE: leanvrf/schemas/leanvrf-v1.json
         run: bash leanvrf/scripts/build-predicate.sh /tmp/attest/predicate.json
@@ -188,5 +199,5 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: /tmp/attest/subjects.checksums
-          predicate-type: "urn:leanvrf:v1"
+          predicate-type: ${{ env.PREDICATE_TYPE }}
           predicate-path: /tmp/attest/predicate.json
