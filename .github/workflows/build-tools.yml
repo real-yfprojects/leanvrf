@@ -58,7 +58,8 @@ jobs:
           # Every tool URL in the lock must point at this release, or the published hashes are useless.
           expected="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/"
           jq -er --arg p "$expected" '
-            [.tools[] | select((.url | startswith($p)) and (.url == $p + .name))] | length == (.tools | length)
+            (.tools | length) as $n
+            | [.tools[] | select(.url == $p + .name)] | length == $n
           ' toolchain.lock >/dev/null || {
             echo "toolchain.lock tool URLs do not all match $expected<name>" >&2
             exit 1

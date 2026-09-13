@@ -1,5 +1,5 @@
 {
-  "$comment": "Pinned verifier toolchain. Every artifact is fetched over HTTPS and checked against its sha256 at run time by scripts/provision-toolchain.sh. This file is read from the trusted checkout at job.workflow_sha, so the hashes below are what the attestation vouches for; sha256 of this file is recorded as lean.toolchain_digest in the predicate. The `tools` entries are also the build recipe consumed by scripts/build-tools.sh (workflow build-tools.yml), which publishes them under `release_tag` and prints an updated copy of this file with the real hashes.",
+  "$comment": "Pinned verifier toolchain. Every artifact is fetched over HTTPS and checked against its sha256 at run time by scripts/provision-toolchain.sh. This file is read from the trusted checkout at job.workflow_sha, so the hashes below are what the attestation vouches for; sha256 of this file is recorded as toolchain.lock.digest.sha256 in the predicate and the lean/tools entries are copied into toolchain.lean / toolchain.tools. The `tools` entries are also the build recipe consumed by scripts/build-tools.sh (workflow build-tools.yml), which publishes them under `release_tag` and prints an updated copy of this file with the real hashes.",
   "release_tag": "tools-v4.33.0-1",
   "lean": {
     "version": "v4.33.0",
@@ -15,7 +15,7 @@
       "build": "lake",
       "target": "lean4export",
       "artifact": ".lake/build/bin/lean4export",
-      "url": "https://github.com/real-yfprojects/leanvrf/releases/download/tools-v4.33.0-1/lean4export",
+      "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/lean4export",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "install": "toolchain",
       "engine": false
@@ -28,7 +28,7 @@
       "build": "lake",
       "target": "comparator",
       "artifact": ".lake/build/bin/comparator",
-      "url": "https://github.com/real-yfprojects/leanvrf/releases/download/tools-v4.33.0-1/comparator",
+      "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/comparator",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "install": "verifier",
       "engine": true
@@ -40,7 +40,7 @@
       "commit": "66cca78149555a92b7d7a919acd88d3878b83302",
       "build": "cargo",
       "artifact": "target/release/nanoda_bin",
-      "url": "https://github.com/real-yfprojects/leanvrf/releases/download/tools-v4.33.0-1/nanoda_bin",
+      "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/nanoda_bin",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "install": "verifier",
       "engine": true
@@ -53,7 +53,7 @@
       "build": "lake",
       "target": "lean4lean",
       "artifact": ".lake/build/bin/lean4lean",
-      "url": "https://github.com/real-yfprojects/leanvrf/releases/download/tools-v4.33.0-1/lean4lean",
+      "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/lean4lean",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "install": "verifier",
       "engine": true
@@ -65,7 +65,7 @@
       "commit": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
       "build": "go",
       "package": "./cmd/landrun",
-      "url": "https://github.com/real-yfprojects/leanvrf/releases/download/tools-v4.33.0-1/landrun",
+      "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.33.0-1/landrun",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "install": "verifier",
       "engine": false
