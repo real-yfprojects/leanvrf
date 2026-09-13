@@ -67,15 +67,17 @@ This leaves the prover still with lots of attack vectors:
 - exploit soundness bugs in a specific lean kernel
 - and possibly many more.
 
-## Attestation contents
+## Mitigations and Security Considerations
+
+### Attestation contents
 
 The workflow signs an [in-toto Statement](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md)
-via `actions/attest`. What a verifier learns is split over two layers, and the split is deliberate:
+via `actions/attest`. What a verifier learns is split over two layers:
 
-| Fact | Where it lives | Why there |
+| Fact | Attestation | Why there |
 |---|---|---|
-| Which workflow ran, at which commit (`job_workflow_ref`, `job_workflow_sha`) | Sigstore certificate (Fulcio extensions, `1.3.6.1.4.1.57264.1.9` / `.10`) | Comes from GitHub's OIDC token; cannot be forged by the prover |
-| GitHub-hosted vs. self-hosted runner (`runner_environment`) | Certificate (`1.3.6.1.4.1.57264.1.11`) | Same. A copy in the predicate would come from the runner context, which a self-hosted runner controls |
+| workflow@commit (`job_workflow_ref`, `job_workflow_sha`) | Sigstore certificate (Fulcio extensions, `1.3.6.1.4.1.57264.1.9` / `.10`) | Comes from GitHub's OIDC token; cannot be forged by the prover |
+| GitHub-hosted vs. self-hosted runner (`runner_environment`) | Certificate (`1.3.6.1.4.1.57264.1.11`) | Same |
 | Prover's repository, ref, run URL, trigger | Certificate (`.12`-`.21`) | Same |
 | Time of signing | Certificate validity / Rekor `integratedTime` | Same |
 | Challenge and solution digests | Statement `subject` **and** predicate `challenge` / `solution` | `subject` lets `gh attestation verify <file>` find the attestation; the predicate copies bind each digest to its *role* (trusted challenge vs. untrusted solution) |
@@ -91,7 +93,7 @@ Predicate type: `https://github.com/theproofnetwork/leanvrf/predicate/v1`.
 Artifact references use in-toto `ResourceDescriptor`s ([schemas/in-toto-v1.json](schemas/in-toto-v1.json)),
 with leanvrf-specific facts under `annotations`, in-toto's designated extension point.
 
-## Toolchain pinning and tool releases
+### Toolchain pinning and tool releases
 
 The workflow never installs Lean or the verifier tools from a package manager, container tag or
 Actions cache. Everything comes from [toolchain.lock](toolchain.lock), which is read from the trusted
@@ -107,7 +109,7 @@ rejects it unless the hash matches; the hash of the lockfile itself ends up in t
 `toolchain.lock.digest.sha256`. Caching is deliberately avoided: in a reusable workflow `actions/cache`
 is scoped to the *caller's* repository, i.e. the prover's, and could be seeded with tampered binaries.
 
-### Building and publishing the tools
+#### Building and publishing the tools
 
 The tool binaries are built by [build-tools.yml](.github/workflows/build-tools.yml)
 (`workflow_dispatch`, maintainers only) via [scripts/build-tools.sh](scripts/build-tools.sh):
@@ -117,7 +119,7 @@ workflow produces. The binaries get an `actions/attest-build-provenance` attesta
 attached to a GitHub release. The run's summary prints a copy of `toolchain.lock` with the real
 hashes filled in; committing that copy is how a new toolchain is rolled out.
 
-### Release tag scheme
+#### Release tag scheme
 
 Tool releases are tagged `tools-<lean version>-<build number>`, e.g. `tools-v4.33.0-1`:
 
@@ -126,12 +128,6 @@ Tool releases are tagged `tools-<lean version>-<build number>`, e.g. `tools-v4.3
 | `tools-` | Separates tool releases from releases of the workflow itself. |
 | `v4.33.0` | The Lean release the binaries were built against. Lean-based tools embed the compiler's githash and reject `.olean`s from any other version, so a Lean bump always means a new set of binaries. |
 | `-1` | Build counter within that Lean version. Bumped whenever anything else changes (a tool commit, a build fix, a toolchain used for building) without Lean changing. |
-
-The tag is not semver and nothing interprets it; it exists to be **immutable** and **readable**.
-`build-tools.yml` refuses to publish if the release already exists, and it checks that every `url`
-in the lockfile points at `releases/download/<release_tag>/<name>` before building. To ship new
-binaries, bump `release_tag` in `toolchain.lock` (which changes the five URLs with it), run the
-build workflow, and commit the lockfile it prints.
 
 Security does not depend on the tag: `provision-toolchain.sh` enforces the sha256 next to each URL,
 and the whole lockfile is hashed into the attestation. A tag that was deleted and recreated with
