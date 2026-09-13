@@ -1,0 +1,121 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/theproofnetwork/leanvrf/schemas/in-toto-v1.json",
+    "title": "in-toto Attestation Framework v1 building blocks",
+    "description": "JSON Schema transcription of the in-toto Attestation Framework v1 (https://github.com/in-toto/attestation/tree/main/spec/v1). in-toto defines these types normatively as protobuf plus prose and ships no JSON Schema, so this file mirrors the spec so that leanvrf predicates can reuse the standard types. Only $defs are provided; reference them as in-toto-v1.json#/$defs/<Name>.",
+    "$comment": "This file may carry an absolute $id because it only contains fragment-only ($ref: '#/...') references. Schemas that $ref this file by relative path must NOT declare an absolute $id, otherwise validators resolve the relative reference against that $id and try to fetch it over the network.",
+    "$defs": {
+        "TypeURI": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]*$",
+            "description": "Absolute URI identifying a type (spec/v1/field_types.md#TypeURI). SHOULD resolve to a human-readable description, MAY be unresolvable."
+        },
+        "ResourceURI": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]*$",
+            "description": "RFC 3986 URI identifying or locating a resource (spec/v1/field_types.md#ResourceURI). The pattern only enforces a scheme and no whitespace; `format` is advisory because validators check it only when an optional RFC 3986 package is installed."
+        },
+        "DigestSet": {
+            "type": "object",
+            "description": "Set of one or more cryptographic digests of a single artifact, keyed by algorithm (spec/v1/digest_set.md). Values for hash algorithms are lowercase hex. Additional algorithms MAY be used; consumers only need to recognise one entry.",
+            "minProperties": 1,
+            "properties": {
+                "sha256": { "$ref": "#/$defs/hex64" },
+                "sha512": { "$ref": "#/$defs/hex128" },
+                "sha384": { "$ref": "#/$defs/hex96" },
+                "sha224": { "$ref": "#/$defs/hex56" },
+                "sha1": { "$ref": "#/$defs/hex40" },
+                "md5": { "$ref": "#/$defs/hex32" },
+                "gitCommit": { "$ref": "#/$defs/gitOid" },
+                "gitTree": { "$ref": "#/$defs/gitOid" },
+                "gitBlob": { "$ref": "#/$defs/gitOid" },
+                "gitTag": { "$ref": "#/$defs/gitOid" }
+            },
+            "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+            }
+        },
+        "ResourceDescriptor": {
+            "type": "object",
+            "description": "Identifies or describes a software artifact (spec/v1/resource_descriptor.md). All fields are optional, but at least one of uri, digest or content MUST be set.",
+            "$comment": "Deliberately closed (additionalProperties: false): in-toto's designated extension point is the free-form `annotations` object, not new top-level keys. Extend by constraining `annotations`, never by adding siblings.",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Machine-readable identifier for distinguishing between descriptors; interpretation is predicate-specific."
+                },
+                "uri": {
+                    "$ref": "#/$defs/ResourceURI",
+                    "description": "Identifies or locates the resource, e.g. where it was fetched from."
+                },
+                "digest": {
+                    "$ref": "#/$defs/DigestSet"
+                },
+                "content": {
+                    "type": "string",
+                    "contentEncoding": "base64",
+                    "description": "Inline content of the resource, base64-encoded."
+                },
+                "downloadLocation": {
+                    "$ref": "#/$defs/ResourceURI",
+                    "description": "Location the resource can be downloaded from, when different from uri."
+                },
+                "mediaType": {
+                    "type": "string",
+                    "description": "IANA media type of the resource."
+                },
+                "annotations": {
+                    "type": "object",
+                    "description": "Free-form metadata about the resource; the only sanctioned extension point of a ResourceDescriptor."
+                }
+            },
+            "anyOf": [
+                { "required": [ "uri" ] },
+                { "required": [ "digest" ] },
+                { "required": [ "content" ] }
+            ],
+            "additionalProperties": false
+        },
+        "Statement": {
+            "type": "object",
+            "description": "in-toto Statement v1 envelope (spec/v1/statement.md): binds a predicate to the subject artifacts it is about. GitHub's actions/attest produces this around the leanvrf predicate.",
+            "required": [ "_type", "subject", "predicateType" ],
+            "properties": {
+                "_type": {
+                    "const": "https://in-toto.io/Statement/v1"
+                },
+                "subject": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "allOf": [ { "$ref": "#/$defs/ResourceDescriptor" } ],
+                        "required": [ "digest" ],
+                        "description": "Every subject MUST carry a digest so consumers can bind the statement to an artifact they hold."
+                    }
+                },
+                "predicateType": {
+                    "$ref": "#/$defs/TypeURI"
+                },
+                "predicate": {
+                    "type": "object",
+                    "description": "Predicate-specific payload; its schema is selected by predicateType. Unset is treated as empty."
+                }
+            },
+            "additionalProperties": false
+        },
+        "hex32": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "hex40": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "hex56": { "type": "string", "pattern": "^[a-f0-9]{56}$" },
+        "hex64": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "hex96": { "type": "string", "pattern": "^[a-f0-9]{96}$" },
+        "hex128": { "type": "string", "pattern": "^[a-f0-9]{128}$" },
+        "gitOid": {
+            "type": "string",
+            "pattern": "^([a-f0-9]{40}|[a-f0-9]{64})$",
+            "description": "Git object id: SHA-1 (40 hex) or SHA-256 (64 hex) repository format."
+        }
+    }
+}
