@@ -164,9 +164,13 @@ jobs:
           path: leanvrf
           persist-credentials: false
 
+      # jq assembles the predicate, check-jsonschema validates it. Declared here
+      # rather than relying on the runner image happening to ship jq.
       # TODO harden by sourcing the package from the toolchain container
       - name: Install Validation Tools
-        run: pipx install check-jsonschema
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends jq
+          pipx install check-jsonschema
 
       # The predicate carries only the verification claim and the toolchain
       # facts. Workflow identity, runner environment, repository and run id are
