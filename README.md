@@ -71,3 +71,4 @@ This leaves the prover still with lots of attack vectors:
 <!-- TODO Document security considerations and mitigations -->
 <!-- TODO verifier script -->
 <!-- TODO resolve todos in workflow -->
+<!-- TODO add git pre-commit hooks to ensure formatting, pinned workflows, security related stuff, ... (and can be used in CI) -->

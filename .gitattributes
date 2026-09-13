@@ -1,0 +1,4 @@
+# Scripts and workflows run on Linux runners; keep them LF regardless of core.autocrlf.
+*.sh text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
