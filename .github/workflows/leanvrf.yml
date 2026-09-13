@@ -63,6 +63,10 @@ jobs:
 
       # TODO: Handle multi file challenges and solutions
       # TODO: allow reaching solution via actions/checkout
+      # The URLs are prover-controlled locators and nothing about them is
+      # trusted; the attestation binds the sha256 of whatever bytes arrived,
+      # computed here by trusted code. fetch-untrusted.sh only makes sure curl
+      # cannot do anything other than write the response body to the given path.
       - name: Fetch Untrusted Inputs & Calculate Hashes
         id: digest
         env:
@@ -70,60 +74,11 @@ jobs:
           SOLUTION_URL: ${{ inputs.solution_url }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/raw_inputs
+          bash leanvrf/scripts/fetch-untrusted.sh "$CHALLENGE_URL" /tmp/raw_inputs/Challenge.lean
+          bash leanvrf/scripts/fetch-untrusted.sh "$SOLUTION_URL"  /tmp/raw_inputs/Solution.lean
 
-          fetch_untrusted_file() {
-            local url="$1"
-            local dest_path="$2"
-
-            if [ -z "$url" ] || [ -z "$dest_path" ]; then
-                echo "Usage: fetch_untrusted_file <url> <destination_path> [max_time_sec] [max_bytes]" >&2
-                return 1
-            fi
-
-            # Ensure target directory exists and clear pre-existing target (mitigates symlink hijacking)
-            mkdir -p "$(dirname "$dest_path")"
-            rm -f "$dest_path"
-
-            # Execute hardened fetch:
-            # - Restrict initial protocol and redirects strictly to HTTPS
-            # - Enforce TLS 1.2+ minimum
-            # - Terminate on HTTP errors (--fail)
-            # - Bound download time and payload size to neutralize DoS/memory tarpits
-            # - Use '--' separator to prevent URL-based argument injection into curl
-            if ! curl \
-                --proto '=https' \
-                --proto-redir '=https' \
-                --tlsv1.2 \
-                --fail \
-                --silent \
-                --show-error \
-                --location \
-                -o "$dest_path" \
-                -- "$url"; then
-                echo "Error: Failed to safely fetch '$url'" >&2
-                rm -f "$dest_path"
-                return 1
-            fi
-
-            # Defensive assertion: Verify destination is a regular file and not a symlink/FIFO
-            if [ ! -f "$dest_path" ] || [ -L "$dest_path" ]; then
-                echo "Security violation: Downloaded destination is invalid or not a regular file." >&2
-                rm -f "$dest_path"
-                return 1
-            fi
-            }
-
-          # Define paths
-          CHALLENGE_FILE="/tmp/raw_inputs/Challenge.lean"
-          SOLUTION_FILE="/tmp/raw_inputs/Solution.lean"
-
-          # Fetch both untrusted files safely
-          fetch_untrusted_file "$CHALLENGE_URL" "$CHALLENGE_FILE"
-          fetch_untrusted_file "$SOLUTION_URL"  "$SOLUTION_FILE"
-
-          echo "challenge_sha=$(sha256sum "$CHALLENGE_FILE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "solution_sha=$(sha256sum "$SOLUTION_FILE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "challenge_sha=$(sha256sum /tmp/raw_inputs/Challenge.lean | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "solution_sha=$(sha256sum /tmp/raw_inputs/Solution.lean | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       # -----------------------------------------------------------------------
       # SANDBOXED Export Challenge AST
