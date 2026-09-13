@@ -18,6 +18,10 @@ on:
 
 permissions: {}
 
+env:
+  # in-toto predicate type of the attestation; schema in schemas/leanvrf-v1.json
+  PREDICATE_TYPE: https://github.com/theproofnetwork/leanvrf/predicate/v1
+
 jobs:
   # =========================================================================
   # JOB 1: DUAL ISOLATED UNTRUSTED EXPORT & TRUSTED COMPARATOR CALL
@@ -188,5 +192,5 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: /tmp/attest/subjects.checksums
-          predicate-type: "urn:leanvrf:v1"
+          predicate-type: ${{ env.PREDICATE_TYPE }}
           predicate-path: /tmp/attest/predicate.json
