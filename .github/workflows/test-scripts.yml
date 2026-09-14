@@ -35,17 +35,20 @@ jobs:
           shellcheck --severity=warning scripts/*.sh
 
       # The AppArmor exception must be scoped to bwrap: the machine-wide
-      # restriction is still on and an ordinary process cannot create a user
-      # namespace, while the jails (tested below) can.
+      # restriction is still on and an unprofiled process cannot create a user
+      # namespace, while the jails (tested below) can. python3 is used as the
+      # probe because Ubuntu ships userns-granting profiles for tools such as
+      # /usr/bin/unshare, which would make them pass regardless.
       - name: User namespace restriction still applies to everything but bwrap
         run: |
           set -euo pipefail
           [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1 ]
-          if unshare -U true 2>/dev/null; then
-            echo "unshare -U succeeded for an unconfined process; restriction is off" >&2
+          [ "$(cat /proc/self/attr/apparmor/current)" = unconfined ]
+          if python3 -c 'import os; os.unshare(os.CLONE_NEWUSER)' 2>/dev/null; then
+            echo "an unconfined process could create a user namespace; restriction is off" >&2
             exit 1
           fi
-          echo "plain unshare -U refused, as intended"
+          echo "user namespace creation refused for an unconfined process, as intended"
 
       - name: Untrusted-input hardening tests
         env:
