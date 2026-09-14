@@ -34,26 +34,31 @@ jobs:
           for f in scripts/*.sh verify.sh; do bash -n "$f"; done
           shellcheck --severity=warning scripts/*.sh
 
-      # The AppArmor exception must be scoped to bwrap: the machine-wide
-      # restriction is still on and an unprofiled process cannot create a user
-      # namespace, while the jails (tested below) can. python3 is used as the
-      # probe because Ubuntu ships userns-granting profiles for tools such as
-      # /usr/bin/unshare, which would make them pass regardless.
+      # The AppArmor exception must be scoped to bwrap. Ubuntu's restriction
+      # does not refuse user namespaces to unconfined processes; it moves any
+      # unconfined process that creates one into the `unprivileged_userns`
+      # profile, which denies every capability inside the namespace. So the
+      # check is: an unprofiled process (python3 -- not /usr/bin/unshare, which
+      # has its own userns-granting profile) ends up under that label and
+      # cannot use a capability, while the jails (tested below) work.
       - name: User namespace restriction still applies to everything but bwrap
         run: |
           set -euo pipefail
-          uname -r; id; sysctl kernel.apparmor_restrict_unprivileged_userns kernel.apparmor_restrict_unprivileged_unconfined || true
-          cat /proc/self/attr/apparmor/current; ls /sys/kernel/security/apparmor/features/ || true
-          cat /sys/kernel/security/apparmor/features/namespaces/* 2>/dev/null || true
-          sudo aa-status 2>/dev/null | head -40 || true
-          python3 -c 'import os; os.unshare(os.CLONE_NEWUSER); print("userns created; uid_map:", open("/proc/self/uid_map").read().strip(), "label:", open("/proc/self/attr/apparmor/current").read().strip())' || echo "python denied: $?"
           [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1 ]
           [ "$(cat /proc/self/attr/apparmor/current)" = unconfined ]
-          if python3 -c 'import os; os.unshare(os.CLONE_NEWUSER)' 2>/dev/null; then
-            echo "an unconfined process could create a user namespace; restriction is off" >&2
-            exit 1
-          fi
-          echo "user namespace creation refused for an unconfined process, as intended"
+          python3 - <<'EOF'
+          import os, socket, sys
+          os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWUTS)
+          label = open('/proc/self/attr/apparmor/current').read().strip()
+          if not label.startswith('unprivileged_userns'):
+              sys.exit(f"unconfined process created a user namespace and kept label {label!r}; restriction is off")
+          try:
+              socket.sethostname('leanvfy-probe')   # CAP_SYS_ADMIN in the new namespace
+          except PermissionError:
+              print(f"user namespace confined by {label}: capabilities denied, as intended")
+          else:
+              sys.exit("capabilities usable inside an unprivileged user namespace; restriction is off")
+          EOF
 
       - name: Untrusted-input hardening tests
         env:

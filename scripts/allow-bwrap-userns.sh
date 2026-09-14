@@ -4,18 +4,21 @@
 # Usage: allow-bwrap-userns.sh            (needs passwordless sudo, as on GitHub runners)
 #
 # Ubuntu confines unprivileged user namespaces with AppArmor
-# (kernel.apparmor_restrict_unprivileged_userns=1): a process may only create one
-# if its AppArmor profile grants `userns`. The profile Ubuntu ships for bwrap
-# (bwrap-userns-restrict) grants that, but stacks the sandboxed children into a
-# restricted profile under which bwrap cannot set up the nested namespace that
-# `--disable-userns` relies on ("setting up uid map: Permission denied").
+# (kernel.apparmor_restrict_unprivileged_userns=1): an unconfined process that
+# creates one is moved into the `unprivileged_userns` profile, which denies every
+# capability inside the new namespace -- closing the usual route by which kernel
+# privilege-escalation bugs are reached from an unprivileged user namespace. A
+# process whose own profile grants `userns` is exempt. The profile Ubuntu ships
+# for bwrap (bwrap-userns-restrict) grants that, but stacks the sandboxed children
+# into a restricted profile under which bwrap cannot set up the nested namespace
+# that `--disable-userns` relies on ("setting up uid map: Permission denied").
 #
 # Instead of turning the machine-wide restriction off, this replaces that profile
 # with one that grants `userns` to /usr/bin/bwrap and leaves it otherwise
 # unconfined -- the same pattern Ubuntu itself uses for browsers. Every other
 # process on the runner stays under the restriction, so if anything ever escaped
-# a jail it still could not reach the kernel surface that user namespaces open
-# up. The code *inside* the jails is unaffected either way: bwrap's
+# a jail it would still land in `unprivileged_userns` the moment it tried to use
+# a user namespace. The code *inside* the jails is unaffected either way: bwrap's
 # --disable-userns caps max_user_namespaces in the sandbox, a per-namespace kernel
 # limit that does not involve AppArmor.
 #
