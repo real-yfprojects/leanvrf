@@ -23,16 +23,17 @@ but Lean packages allow arbitrary code execution inside the workflow.
 
 Challenge and solution are each a git repository at a commit holding a Lake package, with whatever
 dependencies (Mathlib, the challenge itself, anything) their `lake-manifest.json` pins.
-This workflow runs lean comparator inside a sealed sandbox. Comparator builds and exports
-(with lean4export) the challenge workspace before anything from the solution workspace runs, then builds
-and exports the solution workspace the same way, each build inside its own landrun sandbox, ensures that
-the challenge and solution state the theorem identically and don't employ any dishonest tricks, and
-checks the one solution export for correctness not only using the official lean kernel,
+This workflow builds and exports (with lean4export) the challenge workspace in a sealed sandbox
+holding nothing else, then does the same for the solution workspace in a second one, and finally runs
+lean comparator in a third sandbox that contains only the two exports and the verifier binaries.
+Comparator ensures that the challenge and solution state the theorem identically and don't employ any
+dishonest tricks, and checks the one solution export for correctness not only using the official lean kernel,
 but also using nanoda and eink0rn, two independently implemented kernels that consume the
 [lean4export](https://github.com/leanprover/lean4export) format and are tracked on the
 [Lean Kernel Arena](https://arena.lean-lang.org/).
 This helps guarding against exploits that are only present in one of the kernels.
 Every kernel judges the same exported bytes, and each external kernel runs in its own landrun sandbox.
+Prover code runs only in the two build sandboxes, which are gone before the verdict is computed.
 
 ## Adversarial model
 
@@ -104,11 +105,20 @@ the Mathlib modules it needs -- a full `import Mathlib` on a hosted runner will 
 limits. Dependencies must build with the pinned Lean release; the repository's `lean-toolchain` file
 is ignored.
 
-The challenge and the solution are separate Lake workspaces (comparator carries
-[patches/comparator/two-workspaces.patch](patches/comparator/two-workspaces.patch) for this). A single
-workspace would load the prover's dependency lakefiles before the challenge is built. Comparator builds
-and exports the challenge first, keeps the export in memory, and only then touches the solution
-workspace; each step's landrun profile can write nothing but its own workspace's `.lake`. The solution
+The challenge and the solution are separate Lake workspaces, each built and exported by
+[scripts/sandboxed-build-export.sh](scripts/sandboxed-build-export.sh) in its own throwaway bubblewrap
+jail: the jail holds that one workspace (read-only except its `.lake`) and the toolchain, has no
+network, and the only thing that leaves it is the lean4export text through a pipe owned by the host
+script. The challenge is built first; a build jail never sees the other workspace or export, and every
+process a build started is gone when its jail exits. The two exports then go to comparator in a third
+jail ([scripts/sandboxed-comparator.sh](scripts/sandboxed-comparator.sh)) that contains only the verifier
+binaries and the exports -- no Lean, no Lake, no workspace, so no prover code exists any more when the
+statement comparison, the axiom check and the kernels produce the verdict, only prover bytes to parse.
+Comparator's mode for this is [patches/comparator/supply-exports.patch](patches/comparator/supply-exports.patch):
+given two exports it skips building and exporting, and `comparator --print-export-targets` tells the
+build jails which declarations (the theorem, the permitted axioms, the kernel's built-in constants) the
+exports must cover; an export missing any of them, or any constant in the statement's closure, is
+rejected. The solution
 may `require` the challenge repository and `import` the modules holding the definitions the statement
 uses (not the module declaring the theorem itself, whose `sorry` declaration would occupy the name), or
 restate the definitions -- comparator compares the exported kernel terms of the statement's whole

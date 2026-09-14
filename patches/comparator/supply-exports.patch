@@ -1,0 +1,119 @@
+diff --git a/Main.lean b/Main.lean
+index 8560511..0bc6a5b 100644
+--- a/Main.lean
++++ b/Main.lean
+@@ -11,6 +11,9 @@ namespace Comparator
+ 
+ structure Context where
+   projectDir : System.FilePath
++  /-- When set, `lean4export` outputs produced elsewhere; comparator then neither builds
++  nor exports and only compares them and runs the kernels. -/
++  suppliedExports : Option (System.FilePath × System.FilePath)
+   challengeModule : Lean.Name
+   solutionModule : Lean.Name
+   theoremNames : Array Lean.Name
+@@ -301,17 +304,29 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
+   if let some error := result then
+     throw <| IO.userError error
+ 
+-def compareIt : M Unit := do
+-  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
++/-- The declarations whose closure the challenge and solution exports must contain. -/
++def exportTargets : M (Array Lean.Name) := do
++  return (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
+     ++ (← primitiveTargets) ++ (← getDefinitionNames)
+ 
+-  let challengeModule ← getChallengeModule
+-  safeLakeBuild challengeModule
+-  let challengeExport ← safeExport challengeModule exportTargets
+-
+-  let solutionModule ← getSolutionModule
+-  safeLakeBuild solutionModule
+-  let solutionExport ← safeExport solutionModule exportTargets
++def compareIt : M Unit := do
++  let (challengeExport, solutionExport) ← match (← read).suppliedExports with
++    | some (challengePath, solutionPath) =>
++      -- Exports produced by the caller (e.g. each in its own sandbox, see
++      -- `--print-export-targets`). `verifyMatch` rejects an export that lacks any
++      -- target, primitive or closure constant, so an incomplete one cannot pass.
++      IO.println s!"Using supplied exports {challengePath} and {solutionPath}"
++      pure ((← IO.FS.readFile challengePath), (← IO.FS.readFile solutionPath))
++    | none =>
++      let exportTargets ← exportTargets
++      let challengeModule ← getChallengeModule
++      safeLakeBuild challengeModule
++      let challengeExport ← safeExport challengeModule exportTargets
++
++      let solutionModule ← getSolutionModule
++      safeLakeBuild solutionModule
++      let solutionExport ← safeExport solutionModule exportTargets
++      pure (challengeExport, solutionExport)
+ 
+   verifyMatch challengeExport solutionExport
+ 
+@@ -320,6 +335,12 @@ def compareIt : M Unit := do
+ structure Config where
+   challenge_module : String
+   solution_module : String
++  /-- Path to a `lean4export` output for the challenge. Together with `solution_export`
++  this skips building and exporting: the caller is responsible for having exported (at
++  least) the declarations printed by `--print-export-targets`. -/
++  challenge_export : Option String := none
++  /-- See `challenge_export`. -/
++  solution_export : Option String := none
+   theorem_names : Array String
+   definition_names : Option (Array String) := none
+   permitted_axioms : Array String
+@@ -327,10 +348,16 @@ structure Config where
+   external_kernels? : Option (Std.TreeMap String (Array String))
+   deriving Lean.FromJson, Lean.ToJson, Repr
+ 
+-def M.run (x : M α) (cfg : Config) : IO α := do
++def M.run (x : M α) (cfg : Config) (needsToolchain := true) : IO α := do
+   let cwd ← IO.Process.getCurrentDir
+-  let leanPrefix ← queryLeanPrefix cwd
+-  let gitLocation ← queryGitLocation
++  let suppliedExports ← match cfg.challenge_export, cfg.solution_export with
++    | some c, some s => pure <| some (System.FilePath.mk c, System.FilePath.mk s)
++    | none, none => pure none
++    | _, _ => throw <| .userError "challenge_export and solution_export must be given together"
++  -- With supplied exports neither Lean nor Lake nor git is needed (nor may be present).
++  let needsToolchain := needsToolchain && suppliedExports.isNone
++  let leanPrefix ← if needsToolchain then queryLeanPrefix cwd else pure ""
++  let gitLocation ← if needsToolchain then queryGitLocation else pure ""
+   let whichLean4Export := (← IO.getEnv "COMPARATOR_LEAN4EXPORT").getD "lean4export"
+   let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
+   let mut externalKernels := cfg.external_kernels?.getD {}
+@@ -352,6 +379,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
+ 
+   ReaderT.run x {
+     projectDir := cwd
++    suppliedExports := suppliedExports
+     challengeModule := cfg.challenge_module.toName,
+     solutionModule := cfg.solution_module.toName,
+     theoremNames := cfg.theorem_names.map String.toName,
+@@ -366,9 +394,19 @@ def M.run (x : M α) (cfg : Config) : IO α := do
+ 
+ end Comparator
+ 
+-def main (args : List String) : IO Unit := do
+-  let some (configPath : String) := args[0]?
+-    | throw <| .userError "Expected config file path as first argument."
++def readConfig (configPath : String) : IO Comparator.Config := do
+   let content ← IO.FS.readFile configPath
+-  let config ← IO.ofExcept <| Lean.FromJson.fromJson? <| ← IO.ofExcept <| Lean.Json.parse content
+-  Comparator.M.run Comparator.compareIt config
++  IO.ofExcept <| Lean.FromJson.fromJson? <| ← IO.ofExcept <| Lean.Json.parse content
++
++def main (args : List String) : IO Unit := do
++  match args with
++  | ["--print-export-targets", configPath] =>
++    -- One declaration per line: what `lean4export <module> -- ...` must be given so that
++    -- the result can be passed back via `challenge_export` / `solution_export`.
++    let config ← readConfig configPath
++    let targets ← Comparator.M.run Comparator.exportTargets config (needsToolchain := false)
++    for target in targets do
++      IO.println target
++  | [configPath] =>
++    Comparator.M.run Comparator.compareIt (← readConfig configPath)
++  | _ => throw <| .userError "Usage: comparator [--print-export-targets] <config.json>"
