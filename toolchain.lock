@@ -51,7 +51,7 @@
       "target": "comparator",
       "artifact": ".lake/build/bin/comparator",
       "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-4/comparator",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "cf2b5cee02036662cb0d530567e33f2da2a3db41d5c40976adc4e43f33f76cb0",
       "install": "verifier",
       "engine": true
     },
@@ -76,7 +76,7 @@
       "script": "mkdir -p arena/obj && ghc -O2 -threaded -rtsopts=ignoreAll \"-with-rtsopts=-K512m -A1g -Mgrace=256m -T\" -optl-Wl,-z,relro,-z,now -optl-Wl,-z,noexecstack -j -isrc -iapp -outputdir arena/obj -o arena/eink0rn app/Main.hs && ./arena/eink0rn --help >/dev/null",
       "artifact": "arena/eink0rn",
       "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-4/eink0rn",
-      "sha256": "d3ac4cfec03d4684ae83edc9556ddfe808898c944670535e27221dfbc5431558",
+      "sha256": "6cc626b9005ccc80709ed73a06f8e280a8fe60e65014b519f3962a60f1cfb47e",
       "install": "verifier",
       "engine": true
     },
