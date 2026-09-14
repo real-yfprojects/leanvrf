@@ -166,11 +166,16 @@ jobs:
 
       # jq assembles the predicate, check-jsonschema validates it. Declared here
       # rather than relying on the runner image happening to ship jq.
-      # TODO harden by sourcing the package from the toolchain container
+      # check-jsonschema is hash-pinned via scripts/requirements.txt: nothing is
+      # resolved at run time and pip refuses any package whose bytes differ.
       - name: Install Validation Tools
         run: |
+          set -euo pipefail
           sudo apt-get update && sudo apt-get install -y --no-install-recommends jq
-          pipx install check-jsonschema
+          python3 -m venv /tmp/attest-venv
+          /tmp/attest-venv/bin/pip install --require-hashes --no-deps --only-binary=:all: \
+            -r leanvrf/scripts/requirements.txt
+          echo "/tmp/attest-venv/bin" >> "$GITHUB_PATH"
 
       # The predicate carries only the verification claim and the toolchain
       # facts. Workflow identity, runner environment, repository and run id are

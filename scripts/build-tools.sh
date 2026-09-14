@@ -9,9 +9,10 @@
 # Each tool is cloned at exactly `commit` (verified after checkout), built with
 # the recipe named by `build` (lake | cargo | go) and copied to <dist_dir>/<name>.
 # Lake builds use the locked Lean release, not elan, so every Lean-based tool
-# is compiled against the same toolchain that will later run it. Afterwards
-# <dist_dir>/SHA256SUMS and <dist_dir>/toolchain.lock (the input lock with the
-# fresh hashes filled in) are written.
+# is compiled against the same toolchain that will later run it. Rust and Go
+# come from the hash-pinned tarballs in `build_toolchains`, never from the
+# runner image. Afterwards <dist_dir>/SHA256SUMS and <dist_dir>/toolchain.lock
+# (the input lock with the fresh hashes filled in) are written.
 set -euo pipefail
 
 lock="${1:-}"
@@ -38,6 +39,57 @@ fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+
+# Same hardened fetch + hash check as provision-toolchain.sh.
+fetch_pinned() {
+    local url="$1" sha="$2" dest="$3"
+    if ! [[ "$sha" =~ ^[a-f0-9]{64}$ ]]; then
+        echo "Error: malformed sha256 for $url in lockfile" >&2
+        return 1
+    fi
+    curl \
+        --proto '=https' \
+        --proto-redir '=https' \
+        --tlsv1.2 \
+        --fail \
+        --silent \
+        --show-error \
+        --location \
+        -o "$dest" \
+        -- "$url"
+    echo "$sha  $dest" | sha256sum -c --quiet -
+}
+
+# Rust and Go from the hash-pinned tarballs in `build_toolchains`, installed
+# into the scratch dir and put in front of whatever the runner image ships.
+echo "::group::Provision build toolchains"
+rust_version="$(jq -er '.build_toolchains.rust.version' "$lock")"
+fetch_pinned "$(jq -er '.build_toolchains.rust.url' "$lock")" \
+             "$(jq -er '.build_toolchains.rust.sha256' "$lock")" "$work/rust.tar.xz"
+mkdir "$work/rust-dist"
+tar -xJf "$work/rust.tar.xz" -C "$work/rust-dist" --strip-components=1
+# Only the compiler, std and cargo; the tarball also carries docs, clippy, ...
+"$work/rust-dist/install.sh" --prefix="$work/rust" --disable-ldconfig \
+    --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu >/dev/null
+export PATH="$work/rust/bin:$PATH"
+if ! cargo --version | grep -qF "cargo $rust_version "; then
+    echo "Error: cargo in PATH is '$(cargo --version)', lockfile wants $rust_version" >&2
+    exit 1
+fi
+
+go_version="$(jq -er '.build_toolchains.go.version' "$lock")"
+fetch_pinned "$(jq -er '.build_toolchains.go.url' "$lock")" \
+             "$(jq -er '.build_toolchains.go.sha256' "$lock")" "$work/go.tar.gz"
+tar -xzf "$work/go.tar.gz" -C "$work"   # unpacks to $work/go
+export PATH="$work/go/bin:$PATH"
+# Never let go auto-download a newer toolchain because a go.mod asks for one.
+export GOTOOLCHAIN=local
+if ! go version | grep -qF " $go_version "; then
+    echo "Error: go in PATH is '$(go version)', lockfile wants $go_version" >&2
+    exit 1
+fi
+echo "rust: $(cargo --version)   go: $(go version)   lean: $(lean --version)"
+echo "::endgroup::"
 
 clone_pinned() {
     local repo="$1" commit="$2" dir="$3"

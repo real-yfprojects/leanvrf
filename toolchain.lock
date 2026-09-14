@@ -6,6 +6,19 @@
     "url": "https://github.com/leanprover/lean4/releases/download/v4.33.0/lean-4.33.0-linux.tar.zst",
     "sha256": "4b3fb03c29a1e0a253fb1d11f9bae3725f19a0dc6fc09b3ea16d2c9df3349e2c"
   },
+  "build_toolchains": {
+    "$comment": "Compilers used by scripts/build-tools.sh (workflow build-tools.yml) for the non-Lean tools; Lean-based tools are compiled with the `lean` release above. Pinned the same way as `lean` -- official tarball + sha256 -- so the published binaries never depend on whatever compilers the runner image happens to ship. Bumping either requires rebuilding under a new `release_tag`.",
+    "rust": {
+      "version": "1.98.1",
+      "url": "https://static.rust-lang.org/dist/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b"
+    },
+    "go": {
+      "version": "go1.24.13",
+      "url": "https://go.dev/dl/go1.24.13.linux-amd64.tar.gz",
+      "sha256": "1fc94b57134d51669c72173ad5d49fd62afb0f1db9bf3f798fd98ee423f8d730"
+    }
+  },
   "tools": [
     {
       "$comment": "Tag v4.33.0. Emits the NDJSON export format; linked dynamically against libleanshared.so (supportInterpreter), so it must run with the toolchain's lib/lean reachable.",
