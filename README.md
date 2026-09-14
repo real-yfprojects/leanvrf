@@ -127,6 +127,14 @@ each tool is cloned at its pinned commit and compiled against the locked Lean re
 workflow produces. The Rust, Go and GHC compilers for the non-Lean tools come from the hash-pinned
 official tarballs in the lockfile's `build_toolchains` block rather than from the runner image,
 so a rebuild of the same lockfile uses the same compilers.
+Since a crash is always the safe verdict (comparator rejects on any non-zero exit), the tools are
+built so that silent misbehaviour becomes an abort where the compiler allows it: nanoda with integer
+overflow checks and `panic=abort`, eink0rn with `-rtsopts=ignoreAll` so its baked-in RTS limits cannot
+be overridden at run time. The usual ELF mitigations (PIE, full RELRO, non-executable stack) are
+requested where the toolchain supports them and `build-tools.sh` checks the produced binaries with
+`readelf` instead of trusting the flags. The Lean-based tools are compiled by the toolchain's own
+`leanc` with its default flags; the C++ kernel they call is the prebuilt `libleanshared.so` of the
+Lean release, whose build flags this repository cannot influence.
 The binaries get an `actions/attest-build-provenance` attestation and are
 attached to a GitHub release. The run's summary prints a copy of `toolchain.lock` with the real
 hashes filled in; committing that copy is how a new toolchain is rolled out.

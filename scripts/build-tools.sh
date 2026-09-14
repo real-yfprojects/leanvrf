@@ -15,6 +15,22 @@
 # GHC come from the hash-pinned tarballs in `build_toolchains`, never from the
 # runner image. Afterwards <dist_dir>/SHA256SUMS and <dist_dir>/toolchain.lock
 # (the input lock with the fresh hashes filled in) are written.
+#
+# Hardening. The kernels judge attacker-influenced export bytes and a crash is
+# always the safe verdict (comparator treats any non-zero exit as a rejection),
+# so the build turns silent misbehaviour into aborts where the compiler lets
+# it: Rust is built with overflow checks and panic=abort, eink0rn's runtime
+# refuses `+RTS`/GHCRTS overrides of its baked-in limits (see the `script` in
+# the lock). On top of that the usual ELF mitigations (PIE, full RELRO, NX
+# stack) are requested where the toolchain supports them and audit_elf checks
+# the produced binaries rather than trusting the flags. The Lean-based tools
+# are compiled by the toolchain's own `leanc`; its flags are not overridden
+# because LEAN_CC drops leanc's internal sysroot/lld flags, and the C++ kernel
+# they call lives in the prebuilt libleanshared.so anyway.
+#
+# Every tool is built with SOURCE_DATE_EPOCH set to its commit time and with
+# the scratch directory remapped out of Rust debug info, as a step towards
+# rebuilds that reproduce the attested hashes.
 set -euo pipefail
 
 lock="${1:-}"
@@ -118,6 +134,38 @@ clone_pinned() {
     fi
 }
 
+# Check the ELF mitigations of a produced binary instead of trusting the flags
+# that asked for them. An executable stack is always an error. PIE and full
+# RELRO (GNU_RELRO segment + BIND_NOW) are errors when `strict` is 1 and
+# warnings otherwise. Rust guarantees all three on x86_64-unknown-linux-gnu so
+# cargo builds are strict; Go's static PIE, the GHC bindist (whose libraries
+# are not PIC, so no PIE is possible) and leanc's link are only reported until
+# a build has shown what they actually emit, at which point tighten this.
+audit_elf() {
+    local f="$1" strict="$2" hdr dyn rc=0
+    hdr="$(readelf -hlW -- "$f")"
+    dyn="$(readelf -dW -- "$f" 2>/dev/null || true)"
+    if grep -qE '^\s*GNU_STACK\s.*\sRWE\s' <<<"$hdr"; then
+        echo "::error::$f has an executable stack" >&2
+        rc=1
+    fi
+    if ! grep -qE 'GNU_STACK' <<<"$hdr"; then
+        echo "::error::$f has no GNU_STACK program header (executable stack by default)" >&2
+        rc=1
+    fi
+    local level="::warning::"
+    [ "$strict" = 1 ] && level="::error::"
+    local missing=()
+    grep -qE 'Type:\s+DYN' <<<"$hdr"       || missing+=("PIE")
+    grep -qE '^\s*GNU_RELRO\s' <<<"$hdr"  || missing+=("RELRO")
+    grep -qE '\(BIND_NOW\)|\(FLAGS\)\s.*BIND_NOW|\(FLAGS_1\)\s.*NOW' <<<"$dyn" || missing+=("BIND_NOW")
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo "${level}$f lacks: ${missing[*]}" >&2
+        [ "$strict" = 1 ] && rc=1
+    fi
+    return "$rc"
+}
+
 n="$(jq -er '.tools | length' "$lock")"
 for ((i = 0; i < n; i++)); do
     tool="$(jq -c ".tools[$i]" "$lock")"
@@ -134,7 +182,10 @@ for ((i = 0; i < n; i++)); do
     echo "::group::Build $name ($repo@${commit:0:12}, $build)"
     src="$work/$name"
     clone_pinned "$repo" "$commit" "$src"
+    # Timestamps embedded by the compilers come from the pinned commit, not from now.
+    export SOURCE_DATE_EPOCH="$(git -C "$src" log -1 --format=%ct)"
 
+    strict=0
     case "$build" in
         lake)
             target="$(jq -er '.target' <<<"$tool")"
@@ -144,12 +195,25 @@ for ((i = 0; i < n; i++)); do
             ;;
         cargo)
             artifact="$(jq -er '.artifact' <<<"$tool")"
-            (cd "$src" && cargo build --release --locked)
+            # overflow-checks: wrapped arithmetic in a kernel is a silent wrong
+            # answer, a panic is a rejection. panic=abort: no unwinding for a
+            # catch_unwind on some worker thread to swallow. The remaps keep the
+            # random scratch path out of panic messages and debug info.
+            rustflags="-C overflow-checks=on -C panic=abort"
+            rustflags+=" --remap-path-prefix=$work=/build"
+            rustflags+=" --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+            (cd "$src" && RUSTFLAGS="$rustflags" cargo build --release --locked)
             cp "$src/$artifact" "$dist/$name"
+            strict=1
             ;;
         go)
             package="$(jq -er '.package' <<<"$tool")"
-            (cd "$src" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$dist/$name" "$package")
+            # Static PIE (internal linking supports it without cgo on linux/amd64);
+            # -mod=readonly so go.sum is the only source of truth and a stray
+            # go.mod edit can never resolve modules over the network; no build
+            # id so identical inputs give identical bytes.
+            (cd "$src" && CGO_ENABLED=0 go build -mod=readonly -trimpath -buildmode=pie \
+                -ldflags='-s -w -buildid=' -o "$dist/$name" "$package")
             ;;
         script)
             script="$(jq -er '.script' <<<"$tool")"
@@ -164,6 +228,7 @@ for ((i = 0; i < n; i++)); do
     esac
     chmod 0755 "$dist/$name"
     file "$dist/$name"
+    audit_elf "$dist/$name" "$strict"
     echo "::endgroup::"
 done
 

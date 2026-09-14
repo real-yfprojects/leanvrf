@@ -44,10 +44,11 @@ jobs:
 
       # libgmp-dev and libncurses-dev: the pinned GHC bindist links Haskell
       # programs against the system libgmp and needs libtinfo to run.
+      # binutils: readelf for the ELF hardening audit in build-tools.sh.
       - name: Install System Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            jq zstd xz-utils curl git file make gcc libgmp-dev libncurses-dev
+            jq zstd xz-utils curl git file make gcc binutils libgmp-dev libncurses-dev
 
       - name: Resolve release tag
         id: tag
