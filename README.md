@@ -88,6 +88,9 @@ A verifier MUST take those from the certificate and MUST NOT accept a predicate-
 The predicate's `policy` and `toolchain` blocks are fully determined by `job_workflow_sha`; they are repeated
 so that consumers can read what was checked without checking out this repository, and can be cross-checked
 against it via `toolchain.lock.digest.sha256`.
+The only third-party code the attest job runs besides `jq` is `check-jsonschema`, installed from
+[scripts/requirements.txt](scripts/requirements.txt) with `pip install --require-hashes`, so every
+Python package (including transitive dependencies) is pinned by version and sha256.
 
 Predicate type: `https://github.com/theproofnetwork/leanvrf/predicate/v1`.
 Artifact references use in-toto `ResourceDescriptor`s ([schemas/in-toto-v1.json](schemas/in-toto-v1.json)),
@@ -115,7 +118,10 @@ The tool binaries are built by [build-tools.yml](.github/workflows/build-tools.y
 (`workflow_dispatch`, maintainers only) via [scripts/build-tools.sh](scripts/build-tools.sh):
 each tool is cloned at its pinned commit and compiled against the locked Lean release itself
 (not via `elan`), so the Lean-based tools accept exactly the `.olean` files the verification
-workflow produces. The binaries get an `actions/attest-build-provenance` attestation and are
+workflow produces. The Rust and Go compilers for the non-Lean tools come from the hash-pinned
+official tarballs in the lockfile's `build_toolchains` block rather than from the runner image,
+so a rebuild of the same lockfile uses the same compilers.
+The binaries get an `actions/attest-build-provenance` attestation and are
 attached to a GitHub release. The run's summary prints a copy of `toolchain.lock` with the real
 hashes filled in; committing that copy is how a new toolchain is rolled out.
 
