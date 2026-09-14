@@ -80,6 +80,7 @@ dest="$(realpath "$dest")"
 git_in_jail() {
     bwrap \
         --unshare-all \
+        --unshare-user \
         --share-net \
         --disable-userns \
         --die-with-parent \

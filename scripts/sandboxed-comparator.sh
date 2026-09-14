@@ -121,14 +121,18 @@ exec comparator /config/comparator.json
 # /etc/alternatives is bound because Debian's `which` (comparator locates git
 # with it) and a few other /usr/bin entries are symlinks into it; nothing else
 # from /etc is visible, so there is no host git or Lake configuration inside.
-# --unshare-all covers user, pid, net, ipc and uts namespaces. The abstract
-# unix sockets comparator's README guards against with systemd-run are scoped
-# to the network namespace, which the jail does not share with the host.
-# --disable-userns forbids creating further user namespaces inside the jail:
-# nothing in the pipeline needs them (landrun uses Landlock, not namespaces),
-# and they are the largest piece of kernel surface --unshare-user opens up.
+# --unshare-all covers pid, net, ipc and uts namespaces and *tries* a user
+# namespace; --unshare-user makes that one mandatory (--disable-userns needs
+# it, and a jail that silently fell back to the host's user namespace would
+# be weaker than intended). The abstract unix sockets comparator's README
+# guards against with systemd-run are scoped to the network namespace, which
+# the jail does not share with the host. --disable-userns forbids creating
+# further user namespaces inside the jail: nothing in the pipeline needs them
+# (landrun uses Landlock, not namespaces), and they are the largest piece of
+# kernel surface --unshare-user opens up.
 exec bwrap \
     --unshare-all \
+    --unshare-user \
     --disable-userns \
     --die-with-parent \
     --ro-bind /usr /usr \
