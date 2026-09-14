@@ -35,7 +35,7 @@
       "target": "lean4export",
       "artifact": ".lake/build/bin/lean4export",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-2/lean4export",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "4fa9e14cada304109e85da5048bcd411cf781a03539b3e50953e5c537074bd9e",
       "install": "toolchain",
       "engine": false
     },
@@ -48,7 +48,7 @@
       "target": "comparator",
       "artifact": ".lake/build/bin/comparator",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-2/comparator",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "5dca99684e841c3c1dd8a50fa18d9119327295cf3b68c6e4e70f0c17c31321cc",
       "install": "verifier",
       "engine": true
     },
@@ -60,7 +60,7 @@
       "build": "cargo",
       "artifact": "target/release/nanoda_bin",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-2/nanoda_bin",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "88a8a4ed7164d817913ba9963b2eda30531b4f0218a8cd8c4dfa513ecb7e0790",
       "install": "verifier",
       "engine": true
     },
@@ -73,7 +73,7 @@
       "script": "mkdir -p arena/obj && ghc -O2 -threaded -rtsopts=ignoreAll \"-with-rtsopts=-K512m -A1g -Mgrace=256m -T\" -optl-Wl,-z,relro,-z,now -optl-Wl,-z,noexecstack -j -isrc -iapp -outputdir arena/obj -o arena/eink0rn app/Main.hs && ./arena/eink0rn --help >/dev/null",
       "artifact": "arena/eink0rn",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-2/eink0rn",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "b68cbcca7586820678fd0b569fed91f991813b400eafd919e795a13729daa275",
       "install": "verifier",
       "engine": true
     },
@@ -85,7 +85,7 @@
       "build": "go",
       "package": "./cmd/landrun",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-2/landrun",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "3c8c5891e594abb8c1797ba165452ef65b2f57d40d64179258231b15ba20d645",
       "install": "verifier",
       "engine": false
     }
