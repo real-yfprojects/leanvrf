@@ -35,7 +35,7 @@
       "target": "lean4export",
       "artifact": ".lake/build/bin/lean4export",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-1/lean4export",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "4fa9e14cada304109e85da5048bcd411cf781a03539b3e50953e5c537074bd9e",
       "install": "toolchain",
       "engine": false
     },
@@ -48,7 +48,7 @@
       "target": "comparator",
       "artifact": ".lake/build/bin/comparator",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-1/comparator",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "5dca99684e841c3c1dd8a50fa18d9119327295cf3b68c6e4e70f0c17c31321cc",
       "install": "verifier",
       "engine": true
     },
@@ -60,7 +60,7 @@
       "build": "cargo",
       "artifact": "target/release/nanoda_bin",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-1/nanoda_bin",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "9a9fd3113ce5781145df21675995033aa570ad3a1f9cbef86d459cacef603e2c",
       "install": "verifier",
       "engine": true
     },
@@ -73,7 +73,7 @@
       "script": "mkdir -p arena/obj && ghc -O2 -threaded -rtsopts \"-with-rtsopts=-K512m -A1g -Mgrace=256m -T\" -j -isrc -iapp -outputdir arena/obj -o arena/eink0rn app/Main.hs && ./arena/eink0rn --help >/dev/null",
       "artifact": "arena/eink0rn",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-1/eink0rn",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "1de77730621581152638adcad4d5d89c615ff0c2dc330a5490e6a4d40521cbb0",
       "install": "verifier",
       "engine": true
     },
@@ -85,7 +85,7 @@
       "build": "go",
       "package": "./cmd/landrun",
       "url": "https://github.com/theproofnetwork/leanvrf/releases/download/tools-v4.34.0-rc2-1/landrun",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "cadca12ada763c7e9cf1de86225b6327356c6f0d816d3f634498015a8cb509e3",
       "install": "verifier",
       "engine": false
     }
