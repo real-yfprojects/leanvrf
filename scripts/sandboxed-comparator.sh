@@ -26,6 +26,17 @@
 # point where untrusted code executes, and comparator exports the challenge
 # before it does.
 #
+# .lake is meant to be the *only* path the sandboxed steps can write. The one
+# other candidate is /dev: bwrap's --dev is a fresh tmpfs owned by the jail
+# user, and comparator grants every landrun step (both builds, both exports,
+# each external kernel) --rw /dev. Nothing in the pipeline writes there, but it
+# would be a scratch area shared between the solution build and the trusted
+# steps that run after it, and the build could replace the /dev/stdout,
+# /dev/fd, /dev/ptmx symlinks bwrap creates. So the tmpfs is remounted
+# read-only right after it is populated. --remount-ro touches only that mount:
+# the device nodes are separate bind mounts (and EROFS never applies to device
+# nodes anyway), and /dev/pts is its own devpts mount, so both stay usable.
+#
 # Inside the jail, landrun is the only wall between that untrusted build and
 # comparator, and comparator invokes it with --best-effort: on a kernel (or in
 # a namespace) where Landlock is unavailable it would run the build and the
@@ -54,7 +65,10 @@ mkdir -p "$project/.lake"
 
 # Runs as the jail's init process. The landrun flags are the fixed prefix of
 # comparator's buildLandrunArgs (Main.lean); the probe writes into the jail's
-# private /tmp, which is writable for everything not under landrun.
+# private /tmp, which is writable for everything not under landrun. The third
+# check runs with exactly those base flags, i.e. with --rw /dev granted, and
+# still expects the write to /dev to fail: that is the read-only remount below
+# doing its job, independent of Landlock.
 jail_entry='
 set -eu
 probe=/tmp/landlock-probe
@@ -67,6 +81,11 @@ fi
 if ! landrun --best-effort --ro / --rw /dev -ldd -add-exec --rwx "$probe/allowed" \
         -- /bin/sh -c "echo x > $probe/allowed/f"; then
     echo "Landlock self-test failed: landrun refused a write to a granted path" >&2
+    exit 1
+fi
+if landrun --best-effort --ro / --rw /dev -ldd -add-exec \
+        -- /bin/sh -c "echo x > /dev/leanvfy-probe" 2>/dev/null; then
+    echo "Jail self-test failed: /dev is writable despite the read-only remount" >&2
     exit 1
 fi
 rm -r "$probe"
@@ -95,6 +114,7 @@ exec bwrap \
     --tmpfs /tmp \
     --proc /proc \
     --dev /dev \
+    --remount-ro /dev \
     --chdir /work \
     env -i PATH="/opt/lean/bin:/opt/bin:/usr/bin:/bin" HOME="/tmp" LEAN_ABORT_ON_PANIC=1 \
     /bin/sh -c "$jail_entry"
