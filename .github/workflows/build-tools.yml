@@ -3,11 +3,11 @@ name: Build Verifier Tools
 # Maintainer-triggered. Builds every tool in toolchain.lock from source at its
 # pinned commit against the locked Lean release, attests build provenance for
 # the binaries, and publishes them as assets of an immutable GitHub release so
-# that leanvrf.yml can fetch them by URL + sha256.
+# that leanvfy.yml can fetch them by URL + sha256.
 #
 # After a run: copy dist/toolchain.lock from the job summary (or the release
 # asset of the same name) over toolchain.lock in this repo and commit it. Until
-# then leanvrf.yml keeps failing hash verification on purpose.
+# then leanvfy.yml keeps failing hash verification on purpose.
 #
 # dry_run=true exercises the build (e.g. after touching build-tools.sh or the
 # build_toolchains pins) without attesting or publishing anything.
@@ -78,7 +78,7 @@ jobs:
           }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      # Same provisioner leanvrf.yml uses, restricted to the Lean release itself.
+      # Same provisioner leanvfy.yml uses, restricted to the Lean release itself.
       - name: Provision locked Lean release
         run: bash scripts/provision-toolchain.sh --lean-only toolchain.lock
 

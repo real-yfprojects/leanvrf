@@ -1,4 +1,4 @@
-# leanvrf
+# leanvfy
 Workflow to attest successful lean verification of a given statement with unfalsifiable provenance and integrity guarantees
 
 When an possibly dishonest actor claims to have proven a mathematical statement,
@@ -87,7 +87,7 @@ via `actions/attest`. What a verifier learns is split over two layers:
 | Prover's repository, ref, run URL, trigger | Certificate (`.12`-`.21`) | Same |
 | Time of signing | Certificate validity / Rekor `integratedTime` | Same |
 | Challenge and solution digests | Statement `subject` **and** predicate `challenge` / `solution` | `subject` lets `gh attestation verify <file>` find the attestation; the predicate copies bind each digest to its *role* (trusted challenge vs. untrusted solution) |
-| Theorem name, result, axiom policy, pinned toolchain | Predicate ([schemas/leanvrf-v1.json](schemas/leanvrf-v1.json)) | Computed by the trusted workflow code; not expressible in the certificate |
+| Theorem name, result, axiom policy, pinned toolchain | Predicate ([schemas/leanvfy-v1.json](schemas/leanvfy-v1.json)) | Computed by the trusted workflow code; not expressible in the certificate |
 
 The predicate therefore contains **no** workflow identity, runner type, repository or timestamp fields.
 A verifier MUST take those from the certificate and MUST NOT accept a predicate-supplied value in their place.
@@ -98,9 +98,9 @@ The only third-party code the attest job runs besides `jq` is `check-jsonschema`
 [scripts/requirements.txt](scripts/requirements.txt) with `pip install --require-hashes`, so every
 Python package (including transitive dependencies) is pinned by version and sha256.
 
-Predicate type: `https://github.com/theproofnetwork/leanvrf/predicate/v1`.
+Predicate type: `https://github.com/theproofnetwork/leanvfy/predicate/v1`.
 Artifact references use in-toto `ResourceDescriptor`s ([schemas/in-toto-v1.json](schemas/in-toto-v1.json)),
-with leanvrf-specific facts under `annotations`, in-toto's designated extension point.
+with leanvfy-specific facts under `annotations`, in-toto's designated extension point.
 
 ### Toolchain pinning and tool releases
 

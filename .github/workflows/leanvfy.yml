@@ -25,8 +25,8 @@ env:
   # axiom list; it only judges well-typedness. Defined once so the value the
   # checks ran with is the value recorded in the predicate.
   ALLOWED_AXIOMS: propext,Quot.sound,Classical.choice
-  # in-toto predicate type of the attestation; schema in schemas/leanvrf-v1.json
-  PREDICATE_TYPE: https://github.com/theproofnetwork/leanvrf/predicate/v1
+  # in-toto predicate type of the attestation; schema in schemas/leanvfy-v1.json
+  PREDICATE_TYPE: https://github.com/theproofnetwork/leanvfy/predicate/v1
 
 jobs:
   # =========================================================================
@@ -55,13 +55,13 @@ jobs:
       # is executing. `job.workflow_repository` / `job.workflow_sha` refer to the
       # called workflow, not the caller, and the same commit is bound into the
       # attestation certificate as job_workflow_sha. Helper scripts under
-      # leanvrf/scripts are therefore fixed by the attested identity.
+      # leanvfy/scripts are therefore fixed by the attested identity.
       - name: Check out trusted helper scripts
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          path: leanvrf
+          path: leanvfy
           persist-credentials: false
 
       # git is needed inside the comparator jail (comparator resolves it at
@@ -77,7 +77,7 @@ jobs:
       # attested job.workflow_sha pins the exact toolchain. Never cache this:
       # actions/cache is scoped to the caller (prover) repository.
       - name: Provision Pinned Toolchain
-        run: bash leanvrf/scripts/provision-toolchain.sh leanvrf/toolchain.lock
+        run: bash leanvfy/scripts/provision-toolchain.sh leanvfy/toolchain.lock
 
       # TODO: Handle multi file challenges and solutions
       # TODO: allow reaching solution via actions/checkout
@@ -92,8 +92,8 @@ jobs:
           SOLUTION_URL: ${{ inputs.solution_url }}
         run: |
           set -euo pipefail
-          bash leanvrf/scripts/fetch-untrusted.sh "$CHALLENGE_URL" "$PROJECT/$CHALLENGE_MODULE.lean"
-          bash leanvrf/scripts/fetch-untrusted.sh "$SOLUTION_URL"  "$PROJECT/$SOLUTION_MODULE.lean"
+          bash leanvfy/scripts/fetch-untrusted.sh "$CHALLENGE_URL" "$PROJECT/$CHALLENGE_MODULE.lean"
+          bash leanvfy/scripts/fetch-untrusted.sh "$SOLUTION_URL"  "$PROJECT/$SOLUTION_MODULE.lean"
 
           echo "challenge_sha=$(sha256sum "$PROJECT/$CHALLENGE_MODULE.lean" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "solution_sha=$(sha256sum "$PROJECT/$SOLUTION_MODULE.lean" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
@@ -110,7 +110,7 @@ jobs:
             echo "Security violation: Lean toolchain reachable on the host." >&2
             exit 1
           fi
-          bash leanvrf/scripts/init-project.sh "$PROJECT" leanvrf/toolchain.lock \
+          bash leanvfy/scripts/init-project.sh "$PROJECT" leanvfy/toolchain.lock \
             "$CHALLENGE_MODULE" "$SOLUTION_MODULE"
 
       # -----------------------------------------------------------------------
@@ -148,7 +148,7 @@ jobs:
               }
             }' > /tmp/comparator.json
           cat /tmp/comparator.json
-          bash leanvrf/scripts/sandboxed-comparator.sh "$PROJECT" /tmp/comparator.json
+          bash leanvfy/scripts/sandboxed-comparator.sh "$PROJECT" /tmp/comparator.json
 
       # Reached only if every step above exited 0.
       - name: Record Verdict
@@ -175,7 +175,7 @@ jobs:
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          path: leanvrf
+          path: leanvfy
           persist-credentials: false
 
       # jq assembles the predicate, check-jsonschema validates it. Declared here
@@ -188,7 +188,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends jq
           python3 -m venv /tmp/attest-venv
           /tmp/attest-venv/bin/pip install --require-hashes --no-deps --only-binary=:all: \
-            -r leanvrf/scripts/requirements.txt
+            -r leanvfy/scripts/requirements.txt
           echo "/tmp/attest-venv/bin" >> "$GITHUB_PATH"
 
       # The predicate carries only the verification claim and the toolchain
@@ -204,9 +204,9 @@ jobs:
           SOLUTION_URL: ${{ inputs.solution_url }}
           SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
           # Same trusted checkout as the evaluate job; expanded into the toolchain block
-          TOOLCHAIN_LOCK: leanvrf/toolchain.lock
-          SCHEMA_FILE: leanvrf/schemas/leanvrf-v1.json
-        run: bash leanvrf/scripts/build-predicate.sh /tmp/attest/predicate.json
+          TOOLCHAIN_LOCK: leanvfy/toolchain.lock
+          SCHEMA_FILE: leanvfy/schemas/leanvfy-v1.json
+        run: bash leanvfy/scripts/build-predicate.sh /tmp/attest/predicate.json
 
       - name: Prepare Subjects
         env:

@@ -26,7 +26,7 @@ shift 2
 lean_version="$(jq -er '.lean.version' "$lock")"
 
 {
-    echo 'name = "leanvrf"'
+    echo 'name = "leanvfy"'
     echo 'version = "0.1.0"'
     for module in "$@"; do
         if ! [[ "$module" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then

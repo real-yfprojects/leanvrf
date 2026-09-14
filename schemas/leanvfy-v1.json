@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "leanvrf verification predicate v1",
-    "description": "Predicate type https://github.com/theproofnetwork/leanvrf/predicate/v1. States that the Lean theory `solution` proves the declaration `theorem` exactly as stated in the trusted Lean theory `challenge`, checked under `policy` with the pinned `toolchain`. The claim is only meaningful inside a Sigstore bundle whose certificate identifies the leanvrf reusable workflow; see README 'Attestation contents'.",
+    "title": "leanvfy verification predicate v1",
+    "description": "Predicate type https://github.com/theproofnetwork/leanvfy/predicate/v1. States that the Lean theory `solution` proves the declaration `theorem` exactly as stated in the trusted Lean theory `challenge`, checked under `policy` with the pinned `toolchain`. The claim is only meaningful inside a Sigstore bundle whose certificate identifies the leanvfy reusable workflow; see README 'Attestation contents'.",
     "$comment": "No $id on purpose: the relative $ref to in-toto-v1.json must resolve against this file's location on disk, not against a URL. -- The predicate deliberately omits everything the signing certificate already states authoritatively (workflow ref and sha, runner environment, repository, run URL, signing time). Those values would have to be copied from the GitHub runner context, which an attacker controls on a self-hosted runner, whereas the certificate values come from GitHub's OIDC token. Verifiers MUST read them from the certificate and MUST NOT look for them here.",
     "type": "object",
     "required": [

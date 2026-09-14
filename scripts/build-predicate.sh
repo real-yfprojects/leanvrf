@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the leanvrf verification predicate and validate it against the schema.
+# Build the leanvfy verification predicate and validate it against the schema.
 #
 # Usage: build-predicate.sh <output_predicate.json>
 #
@@ -12,7 +12,7 @@
 #   ALLOWED_AXIOMS    Comma-separated axiom whitelist the kernels were run with
 #   TOOLCHAIN_LOCK    Path to toolchain.lock from the trusted checkout; its
 #                     entries populate the `toolchain` block verbatim
-#   SCHEMA_FILE       Path to schemas/leanvrf-v1.json (in-toto-v1.json must sit
+#   SCHEMA_FILE       Path to schemas/leanvfy-v1.json (in-toto-v1.json must sit
 #                     next to it; the schema references it by relative path)
 #
 # Deliberately NOT inputs: workflow identity, runner environment, repository,
@@ -48,7 +48,7 @@ mkdir -p "$(dirname "$out")"
 lock_sha="$(sha256sum "$TOOLCHAIN_LOCK" | awk '{print $1}')"
 
 # Artifact references use in-toto ResourceDescriptors: name + uri + digest,
-# with leanvrf-specific facts under `annotations` (in-toto's extension point).
+# with leanvfy-specific facts under `annotations` (in-toto's extension point).
 jq -n \
   --arg theorem "$THEOREM" \
   --arg challenge_url "$CHALLENGE_URL" \

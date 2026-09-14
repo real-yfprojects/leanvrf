@@ -1,8 +1,8 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://github.com/theproofnetwork/leanvrf/schemas/in-toto-v1.json",
+    "$id": "https://github.com/theproofnetwork/leanvfy/schemas/in-toto-v1.json",
     "title": "in-toto Attestation Framework v1 building blocks",
-    "description": "JSON Schema transcription of the in-toto Attestation Framework v1 (https://github.com/in-toto/attestation/tree/main/spec/v1). in-toto defines these types normatively as protobuf plus prose and ships no JSON Schema, so this file mirrors the spec so that leanvrf predicates can reuse the standard types. Only $defs are provided; reference them as in-toto-v1.json#/$defs/<Name>.",
+    "description": "JSON Schema transcription of the in-toto Attestation Framework v1 (https://github.com/in-toto/attestation/tree/main/spec/v1). in-toto defines these types normatively as protobuf plus prose and ships no JSON Schema, so this file mirrors the spec so that leanvfy predicates can reuse the standard types. Only $defs are provided; reference them as in-toto-v1.json#/$defs/<Name>.",
     "$comment": "This file may carry an absolute $id because it only contains fragment-only ($ref: '#/...') references. Schemas that $ref this file by relative path must NOT declare an absolute $id, otherwise validators resolve the relative reference against that $id and try to fetch it over the network.",
     "$defs": {
         "TypeURI": {
@@ -81,7 +81,7 @@
         },
         "Statement": {
             "type": "object",
-            "description": "in-toto Statement v1 envelope (spec/v1/statement.md): binds a predicate to the subject artifacts it is about. GitHub's actions/attest produces this around the leanvrf predicate.",
+            "description": "in-toto Statement v1 envelope (spec/v1/statement.md): binds a predicate to the subject artifacts it is about. GitHub's actions/attest produces this around the leanvfy predicate.",
             "required": [ "_type", "subject", "predicateType" ],
             "properties": {
                 "_type": {
