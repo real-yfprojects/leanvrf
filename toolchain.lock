@@ -1,6 +1,6 @@
 {
-  "$comment": "Pinned verifier toolchain. Every artifact is fetched over HTTPS and checked against its sha256 at run time by scripts/provision-toolchain.sh. This file is read from the trusted checkout at job.workflow_sha, so the hashes below are what the attestation vouches for; sha256 of this file is recorded as toolchain.lock.digest.sha256 in the predicate and the lean/tools entries are copied into toolchain.lean / toolchain.tools. The `tools` entries are also the build recipe consumed by scripts/build-tools.sh (workflow build-tools.yml), which publishes them under `release_tag` and prints an updated copy of this file with the real hashes. All-zero sha256 values mark tools that have not been built for `release_tag` yet; leanvfy.yml fails hash verification on purpose until they are. Every kernel here consumes the lean4export NDJSON stream produced by comparator (exit 0 accept / 1 reject / 2 decline), the contract of https://arena.lean-lang.org, whose published rounds are the evidence used to pick and pin them.",
-  "release_tag": "tools-v4.34.0-rc2-2",
+  "$comment": "Pinned verifier toolchain. Every artifact is fetched over HTTPS and checked against its sha256 at run time by scripts/provision-toolchain.sh. This file is read from the trusted checkout at job.workflow_sha, so the hashes below are what the attestation vouches for; sha256 of this file is recorded as toolchain.lock.digest.sha256 in the predicate and the lean/tools entries are copied into toolchain.lean / toolchain.tools. The `tools` entries are also the build recipe consumed by scripts/build-tools.sh (workflow build-tools.yml), which publishes them under `release_tag` and prints an updated copy of this file with the real hashes; an optional `patches` list names diffs from this repository's patches/ directory that build-tools.sh applies to the pinned checkout before building, so a patched tool is still fully described by this file plus the attested workflow commit. All-zero sha256 values mark tools that have not been built for `release_tag` yet; leanvfy.yml fails hash verification on purpose until they are. Every kernel here consumes the lean4export NDJSON stream produced by comparator (exit 0 accept / 1 reject / 2 decline), the contract of https://arena.lean-lang.org, whose published rounds are the evidence used to pick and pin them.",
+  "release_tag": "tools-v4.34.0-rc2-3",
   "lean": {
     "$comment": "Release candidate on purpose: comparator master targets it, and the export format (3.1.0) is unchanged from v4.33.0. sha256 is GitHub's digest for the release asset.",
     "version": "v4.34.0-rc2",
@@ -27,28 +27,31 @@
   },
   "tools": [
     {
-      "$comment": "Tag v4.34.0-rc2, the commit comparator's lake-manifest pins. Emits the NDJSON export format 3.1.0; linked dynamically against libleanshared.so (supportInterpreter), so it must run with the toolchain's lib/lean reachable, which is why it is installed into the toolchain's bin.",
+      "$comment": "Tag v4.34.0-rc2, the commit comparator's lake-manifest pins. Emits the NDJSON export format 3.1.0; linked dynamically against libleanshared.so (supportInterpreter), so it must run with the toolchain's lib/lean reachable, which is why it is installed into the toolchain's bin. Invariant checked at this commit and to be re-checked on every bump: it imports the module with `importModules imports {}` (no `loadExts`) and never enables initializer execution, so no `initialize` block of an untrusted module runs inside the exporter; the export is a pure function of the oleans.",
       "name": "lean4export",
       "repo": "leanprover/lean4export",
       "commit": "cacf989bd75f608700820f6afc595f32e7a99a4d",
       "build": "lake",
       "target": "lean4export",
       "artifact": ".lake/build/bin/lean4export",
-      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-2/lean4export",
+      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-3/lean4export",
       "sha256": "4fa9e14cada304109e85da5048bcd411cf781a03539b3e50953e5c537074bd9e",
       "install": "toolchain",
       "engine": false
     },
     {
-      "$comment": "master HEAD 2026-08-30 (lean-toolchain v4.34.0-rc2). Configured through a JSON file, not CLI flags; needs lean, lake, git, landrun and lean4export in PATH (or COMPARATOR_LANDRUN / COMPARATOR_LEAN4EXPORT) and must be started via `lake env` from the project directory. Builds and exports Challenge before Solution, compares the statement's closure, checks the axiom whitelist, then hands the same solution export to every entry of `external_kernels` (each run under landrun, export path appended; names containing `noda` get a nanoda-style config instead) and finally replays it through the Lean kernel in-process. Any non-zero kernel exit, including a decline, is a rejection. TODO: add con-leche (Lean, machine-checked consistency proof, an independent lineage) to `external_kernels` once it implements the language features it currently declines on the arena (dependent `let` / `let` reduction, primitive projections outside elaborator-generated projection functions and mutually recursive structures).",
+      "$comment": "master HEAD 2026-08-30 (lean-toolchain v4.34.0-rc2). Built with patches/comparator/two-workspaces.patch, which adds the `challenge_dir` / `solution_dir` config fields so the challenge and the solution are separate Lake workspaces (each with its own lakefile, manifest and .lake; nothing the solution's dependencies do at build time can reach the challenge build), makes comparator ask `lake env` for each workspace's LEAN_PATH instead of inheriting one, and passes `--no-cache` to `lake build`. Configured through a JSON file, not CLI flags; needs lean, lake, git, landrun and lean4export in PATH (or COMPARATOR_LANDRUN / COMPARATOR_LEAN4EXPORT). Builds and exports the challenge workspace before anything in the solution workspace runs, compares the statement's closure, checks the axiom whitelist, then hands the same solution export to every entry of `external_kernels` (each run under landrun, export path appended; names containing `noda` get a nanoda-style config instead) and finally replays it through the Lean kernel in-process. Any non-zero kernel exit, including a decline, is a rejection. TODO: add con-leche (Lean, machine-checked consistency proof, an independent lineage) to `external_kernels` once it implements the language features it currently declines on the arena (dependent `let` / `let` reduction, primitive projections outside elaborator-generated projection functions and mutually recursive structures).",
       "name": "comparator",
       "repo": "leanprover/comparator",
       "commit": "2312244ac716564a61cc0bf4e107d9abf1757a61",
+      "patches": [
+        "patches/comparator/two-workspaces.patch"
+      ],
       "build": "lake",
       "target": "comparator",
       "artifact": ".lake/build/bin/comparator",
-      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-2/comparator",
-      "sha256": "5dca99684e841c3c1dd8a50fa18d9119327295cf3b68c6e4e70f0c17c31321cc",
+      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-3/comparator",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "install": "verifier",
       "engine": true
     },
@@ -59,7 +62,7 @@
       "commit": "4c544ed4099c8227f07d5de77ad1e69fb0740a27",
       "build": "cargo",
       "artifact": "target/release/nanoda_bin",
-      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-2/nanoda_bin",
+      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-3/nanoda_bin",
       "sha256": "88a8a4ed7164d817913ba9963b2eda30531b4f0218a8cd8c4dfa513ecb7e0790",
       "install": "verifier",
       "engine": true
@@ -72,19 +75,19 @@
       "build": "script",
       "script": "mkdir -p arena/obj && ghc -O2 -threaded -rtsopts=ignoreAll \"-with-rtsopts=-K512m -A1g -Mgrace=256m -T\" -optl-Wl,-z,relro,-z,now -optl-Wl,-z,noexecstack -j -isrc -iapp -outputdir arena/obj -o arena/eink0rn app/Main.hs && ./arena/eink0rn --help >/dev/null",
       "artifact": "arena/eink0rn",
-      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-2/eink0rn",
+      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-3/eink0rn",
       "sha256": "b68cbcca7586820678fd0b569fed91f991813b400eafd919e795a13729daa275",
       "install": "verifier",
       "engine": true
     },
     {
-      "$comment": "main HEAD, as comparator's README requires. Landlock-based sandbox that comparator uses to build Solution.lean and to run lean4export and the external kernels; static Go binary.",
+      "$comment": "main HEAD, as comparator's README requires. Landlock-based sandbox that comparator uses to build the two workspaces and to run lake env, lean4export and the external kernels; static Go binary.",
       "name": "landrun",
       "repo": "Zouuup/landrun",
       "commit": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
       "build": "go",
       "package": "./cmd/landrun",
-      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-2/landrun",
+      "url": "https://github.com/theproofnetwork/leanvfy/releases/download/tools-v4.34.0-rc2-3/landrun",
       "sha256": "3c8c5891e594abb8c1797ba165452ef65b2f57d40d64179258231b15ba20d645",
       "install": "verifier",
       "engine": false

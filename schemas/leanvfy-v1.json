@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "leanvfy verification predicate v1",
-    "description": "Predicate type https://github.com/theproofnetwork/leanvfy/predicate/v1. States that the Lean theory `solution` proves the declaration `theorem` exactly as stated in the trusted Lean theory `challenge`, checked under `policy` with the pinned `toolchain`. The claim is only meaningful inside a Sigstore bundle whose certificate identifies the leanvfy reusable workflow; see README 'Attestation contents'.",
+    "description": "Predicate type https://github.com/theproofnetwork/leanvfy/predicate/v1. States that the Lean package at `solution` (a git repository at a commit) proves the declaration `theorem`, exported from the module `solution.annotations.module`, exactly as it is stated in the module `challenge.annotations.module` of the trusted Lean package at `challenge`, checked under `policy` with the pinned `toolchain`. A verifier MUST compare all of `challenge.digest.gitCommit`, `challenge.annotations.module` and `theorem` against the challenge they audited: the same theorem name may be declared in more than one module of a repository. The claim is only meaningful inside a Sigstore bundle whose certificate identifies the leanvfy reusable workflow; see README 'Attestation contents'.",
     "$comment": "No $id on purpose: the relative $ref to in-toto-v1.json must resolve against this file's location on disk, not against a URL. -- The predicate deliberately omits everything the signing certificate already states authoritatively (workflow ref and sha, runner environment, repository, run URL, signing time). Those values would have to be copied from the GitHub runner context, which an attacker controls on a self-hosted runner, whereas the certificate values come from GitHub's OIDC token. Verifiers MUST read them from the certificate and MUST NOT look for them here.",
     "type": "object",
     "required": [
@@ -22,15 +22,15 @@
             "type": "string",
             "minLength": 1,
             "pattern": "^[^\r\n]+$",
-            "description": "Fully-qualified Lean declaration name, exactly as passed to the comparator. The claim is about this name as declared in `challenge`; the solution must provide a matching declaration with an identical type."
+            "description": "Fully-qualified Lean declaration name, exactly as passed to the comparator. The claim is about this name as declared in `challenge.annotations.module` of `challenge`; the solution's module provided a declaration of the same name whose statement, together with every constant the statement transitively depends on, is identical to the challenge's."
         },
         "challenge": {
-            "$ref": "#/$defs/HashedFile",
-            "description": "Trusted Lean theory stating the theorem. The verifier trusts this file by digest, e.g. after auditing that it formalises the intended problem."
+            "$ref": "#/$defs/GitCheckout",
+            "description": "Lake package stating the theorem, as a git commit. The verifier trusts it by `digest.gitCommit`, e.g. after auditing that the module `annotations.module` at that commit formalises the intended problem, together with the package's lakefile.toml and the dependency revisions pinned in its lake-manifest.json, since the statement's meaning depends on them. The workflow built it from sources only (trees containing Lake build outputs or a lakefile.lean at the root are rejected) with its dependencies checked out at exactly the pinned revisions, offline, using the `toolchain` below regardless of the repository's lean-toolchain file."
         },
         "solution": {
-            "$ref": "#/$defs/HashedFile",
-            "description": "Untrusted Lean theory supplied by the prover that claims to prove `theorem`."
+            "$ref": "#/$defs/GitCheckout",
+            "description": "Untrusted Lake package supplied by the prover that claims to prove `theorem` in the module `annotations.module`. Its dependencies are equally untrusted; only the exported closure of the theorem, judged by every kernel, matters."
         },
         "policy": {
             "type": "object",
@@ -60,7 +60,7 @@
                 },
                 "lean": {
                     "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
-                    "description": "Lean release used to elaborate and export both theories.",
+                    "description": "Lean release used to elaborate and export both packages and their dependencies.",
                     "required": [ "name", "uri", "digest", "annotations" ],
                     "properties": {
                         "digest": { "required": [ "sha256" ] },
@@ -80,7 +80,7 @@
                 "tools": {
                     "type": "array",
                     "minItems": 1,
-                    "description": "Prebuilt binaries that exported the theories and independently checked the solution. Entries flagged `engine` are the checkers the 1-out-of-n trust assumption ranges over.",
+                    "description": "Prebuilt binaries that exported the packages and independently checked the solution. Entries flagged `engine` are the checkers the 1-out-of-n trust assumption ranges over.",
                     "items": {
                         "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
                         "required": [ "name", "uri", "digest", "annotations" ],
@@ -89,6 +89,12 @@
                             "annotations": {
                                 "required": [ "repository", "commit", "engine" ],
                                 "properties": {
+                                    "patches": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": { "type": "string", "minLength": 1 },
+                                        "description": "Patch files, as paths in the workflow repository at the attested commit, applied to the source checkout before building. Absent when the tool was built from the upstream commit unmodified."
+                                    },
                                     "repository": {
                                         "type": "string",
                                         "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
@@ -120,6 +126,30 @@
             "required": [ "name", "digest" ],
             "properties": {
                 "digest": { "required": [ "sha256" ] }
+            }
+        },
+        "GitCheckout": {
+            "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+            "description": "A git repository at one commit. `uri` is where the workflow fetched it from and is only a locator: any repository serving the same commit yields the same tree. `digest.gitCommit` is the commit id (SHA-1 or SHA-256 repository format) and the identity a verifier compares against their own clone. `digest.sha256` is the tree digest computed by scripts/tree-digest.sh of the workflow repository: the sha256 over the lines `<mode> <sha256 of blob content> <path>` (one per blob of `git ls-tree -r <commit>`, in git's order, newline-terminated). It binds every path, mode and byte of the tree independently of SHA-1 and is the subject under which the attestation is published.",
+            "required": [ "name", "uri", "digest", "annotations" ],
+            "properties": {
+                "digest": {
+                    "required": [ "gitCommit", "sha256" ],
+                    "properties": {
+                        "gitCommit": { "$ref": "in-toto-v1.json#/$defs/gitOid" }
+                    }
+                },
+                "annotations": {
+                    "required": [ "module" ],
+                    "properties": {
+                        "module": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$",
+                            "description": "Lean module of the package that comparator built and exported the theorem from."
+                        }
+                    },
+                    "additionalProperties": false
+                }
             }
         }
     }

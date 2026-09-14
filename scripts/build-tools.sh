@@ -10,6 +10,9 @@
 # the recipe named by `build` (lake | cargo | go | script) and copied to
 # <dist_dir>/<name>. `script` runs the tool's own build script from the pinned
 # checkout (`script` field) and takes `artifact` from where it puts the binary.
+# An optional `patches` list names diffs, relative to the lockfile's directory
+# (i.e. this repository), applied with `git apply` before building; they are
+# part of the trusted checkout and thus of the attested build recipe.
 # Lake builds use the locked Lean release, not elan, so every Lean-based tool
 # is compiled against the same toolchain that will later run it. Rust, Go and
 # GHC come from the hash-pinned tarballs in `build_toolchains`, never from the
@@ -182,8 +185,20 @@ for ((i = 0; i < n; i++)); do
     echo "::group::Build $name ($repo@${commit:0:12}, $build)"
     src="$work/$name"
     clone_pinned "$repo" "$commit" "$src"
+    while IFS= read -r patch; do
+        [ -n "$patch" ] || continue
+        if [[ "$patch" = /* ]] || [[ "$patch" = *..* ]]; then
+            echo "Error: patch path '$patch' must be relative and free of '..'" >&2
+            exit 1
+        fi
+        patch_file="$(dirname "$lock")/$patch"
+        echo "Applying $patch ($(sha256sum "$patch_file" | awk '{print $1}'))"
+        git -C "$src" apply --check "$patch_file"
+        git -C "$src" apply "$patch_file"
+    done < <(jq -r '.patches // [] | .[]' <<<"$tool")
     # Timestamps embedded by the compilers come from the pinned commit, not from now.
-    export SOURCE_DATE_EPOCH="$(git -C "$src" log -1 --format=%ct)"
+    SOURCE_DATE_EPOCH="$(git -C "$src" log -1 --format=%ct)"
+    export SOURCE_DATE_EPOCH
 
     strict=0
     case "$build" in
@@ -233,6 +248,8 @@ for ((i = 0; i < n; i++)); do
 done
 
 # Checksums + a copy of the lock with the real hashes, ready to commit.
+# Names were validated above as single safe words, so splitting is the intent.
+# shellcheck disable=SC2046
 (cd "$dist" && sha256sum -- $(jq -r '.tools[].name' "$lock") > SHA256SUMS && cat SHA256SUMS)
 
 jq --rawfile sums "$dist/SHA256SUMS" '

@@ -105,9 +105,9 @@ jobs:
           {
             echo "Verifier tools built from \`toolchain.lock\` at ${GITHUB_SHA} against Lean ${lean_version}."
             echo
-            echo "| tool | source | commit |"
-            echo "|---|---|---|"
-            jq -r '.tools[] | "| \(.name) | https://github.com/\(.repo) | \(.commit) |"' toolchain.lock
+            echo "| tool | source | commit | patches |"
+            echo "|---|---|---|---|"
+            jq -r '.tools[] | "| \(.name) | https://github.com/\(.repo) | \(.commit) | \((.patches // []) | join(", ")) |"' toolchain.lock
             echo
             echo "Build provenance is attested; verify with"
             echo "\`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`."

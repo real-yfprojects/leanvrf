@@ -17,15 +17,17 @@ Verifying these attestations is very cheap and allows other parties to trust
 the correctness of the proof without having to run the expensive verification themselves.
 
 On top of ensuring that a trusted lean environment was used for verification,
-one has to deal with adversarial theorem descriptions (challenges) and proof theories (solutions).
+one has to deal with adversarial theorem descriptions (challenges) and proof packages (solutions).
 Not only can they try to exploit unpatched bugs in a lean kernel, add axioms or redefine objects referenced in the statement,
-but lean theories allow arbitrary code execution inside the workflow.
+but Lean packages allow arbitrary code execution inside the workflow.
 
-This workflow thus runs lean comparator inside a sealed sandbox. Comparator builds and exports
-(with lean4export) the challenge lean theory before any solution code runs, then builds and exports
-the solution lean theory the same way, each build inside its own landrun sandbox (the only places where
-untrusted code runs), ensures that the challenge and solution theories match and don't employ any
-dishonest tricks, and checks the one solution export for correctness not only using the official lean kernel,
+Challenge and solution are each a git repository at a commit holding a Lake package, with whatever
+dependencies (Mathlib, the challenge itself, anything) their `lake-manifest.json` pins.
+This workflow runs lean comparator inside a sealed sandbox. Comparator builds and exports
+(with lean4export) the challenge workspace before anything from the solution workspace runs, then builds
+and exports the solution workspace the same way, each build inside its own landrun sandbox, ensures that
+the challenge and solution state the theorem identically and don't employ any dishonest tricks, and
+checks the one solution export for correctness not only using the official lean kernel,
 but also using nanoda and eink0rn, two independently implemented kernels that consume the
 [lean4export](https://github.com/leanprover/lean4export) format and are tracked on the
 [Lean Kernel Arena](https://arena.lean-lang.org/).
@@ -35,20 +37,21 @@ Every kernel judges the same exported bytes, and each external kernel runs in it
 ## Adversarial model
 
 We model three parties which may coincide: <br>
-The challenger, who formalizes a problem in a challenge lean theory.<br>
+The challenger, who formalizes a problem in a challenge Lean package (a git repository).<br>
 The prover, who claims to have proven a specified challenge and provides a lean proof.<br>
 The verifier, who wants to know whether the prover's claim is true in respect to a given challenge.<br>
 
 The adverserial model takes the perspective of the verifier and assumes that the
 prover may be dishonest and adverse.
-We assume the challenger to be honest, that is the verifier trusts the challenge lean theory
+We assume the challenger to be honest, that is the verifier trusts the challenge package at a given commit
 -- e.g. by checking its source code and verifying that it formalizes the intended problem.
 
 The prover runs this workflow and wants to convince the verifier by providing
 an attestation of a passing verification.
 They control the repository the workflow is executed in, the inputs to the workflow
-**including** the challenge and solution lean theories provided to the workflow.
-That means that while the claimed challenge file is assumed to be honest,
+**including** the challenge and solution repositories provided to the workflow, and every
+dependency those repositories pull in.
+That means that while the claimed challenge is assumed to be honest,
 the prover may run the workflow with an adversarial challenge to trick the verifier into producing an attestation for the claimed challenge.
 They may run on a self-hosted runner, which we have to defend against, since
 we cannot trust self-hosted runners.
@@ -67,13 +70,71 @@ with the C++ kernel (such as lean4lean, which uses Lean's own `Expr` primitives)
 Since the prover pays for the runtime, we don not care about DoS type attacks like consuming lots of CPU time or memory or disk space.
 
 This leaves the prover still with lots of attack vectors:
-- arbitrary code execution when compiling the lean files,
+- arbitrary code execution when compiling the lean files, in `lakefile.lean`s and in dependency build scripts,
 - adding axioms or hiding sorrys,
 - shadowing or redefining names the challenge relies on,
+- pointing the workflow at hostile git repositories, URLs and Lake manifests,
+- shipping prebuilt `.olean`s so that what is checked is not what is in the sources,
 - exploit soundness bugs in a specific lean kernel
 - and possibly many more.
 
 ## Mitigations and Security Considerations
+
+### Repositories, dependencies and the two workspaces
+
+Both inputs are git repositories at a full commit id. The workflow checks each out with
+[scripts/fetch-repo.sh](scripts/fetch-repo.sh), the only code path through which prover-controlled
+bytes reach the runner: https only (also across redirects, `protocol.allow=never`), no credentials
+and no host git configuration, git itself confined to a bubblewrap jail that can write nothing but the
+destination directory, `fsckObjects` on, exactly the requested commit (verified after checkout),
+no submodules. The tree must not contain a `.lake` entry at any depth nor Lake build outputs
+(`*.olean`, `*.ilean`, `*.trace`, `*.hash`): a committed olean with a matching trace would make
+`lake build` a no-op and the exported environment would come from bytes no reviewer of the sources
+sees. `.lake` is created empty by the workflow, so every olean the run reads was produced in this run
+by the attested toolchain from the committed sources.
+
+Dependencies come from each repository's `lake-manifest.json`, which lists the flattened transitive
+set with a git URL and an exact revision per package. [scripts/materialize-deps.sh](scripts/materialize-deps.sh)
+checks every entry out through the same `fetch-repo.sh` (rejecting `path` dependencies, unpinned
+revisions and manifests that relocate `.lake`) so that `lake build` inside the network-less jail finds
+each package already at the pinned revision. Lake never runs on the host: `lake update` would elaborate
+dependency `lakefile.lean`s. Nothing is ever downloaded from a build cache; Mathlib and everything
+else compile from source inside the jail (`lake build --no-cache`), so a challenge should import only
+the Mathlib modules it needs -- a full `import Mathlib` on a hosted runner will run into GitHub's job
+limits. Dependencies must build with the pinned Lean release; the repository's `lean-toolchain` file
+is ignored.
+
+The challenge and the solution are separate Lake workspaces (comparator carries
+[patches/comparator/two-workspaces.patch](patches/comparator/two-workspaces.patch) for this). A single
+workspace would load the prover's dependency lakefiles before the challenge is built. Comparator builds
+and exports the challenge first, keeps the export in memory, and only then touches the solution
+workspace; each step's landrun profile can write nothing but its own workspace's `.lake`. The solution
+may `require` the challenge repository and `import` the modules holding the definitions the statement
+uses (not the module declaring the theorem itself, whose `sorry` declaration would occupy the name), or
+restate the definitions -- comparator compares the exported kernel terms of the statement's whole
+closure by name, so what matters is that the terms match, not where the solution's copy came from.
+The theorem itself is always re-declared, with its proof, in the solution's module. The prover's copy of the challenge inside the
+solution workspace is untrusted and irrelevant: the comparison is against the export of the trusted
+checkout. Solution dependencies are as untrusted as the solution; only the closure of the theorem is
+exported and it is replayed through all three kernels, so whatever they contain is judged by the same
+rules. The pinned `lean4export` imports modules without loading extensions or running initializers, so
+no `initialize` block of an untrusted module runs inside the exporter.
+
+Both builds execute prover-supplied code (the challenge, too, is whatever the prover passed in). Trust
+in the challenge is about what its sources *mean* to a reviewer, not about its build being benign,
+which is why the challenge root must be configured by `lakefile.toml`: unlike a `lakefile.lean` it
+cannot run code at `lake build` time and write oleans the sources do not account for. A hostile
+challenge otherwise gains nothing: whatever it does is attested as *that* challenge, by commit id,
+tree digest and module, and a verifier comparing those against the claimed challenge rejects it.
+
+#### What a verifier must audit in a challenge
+
+The attestation says that `theorem`, as declared in `challenge.annotations.module` of the commit
+`challenge.digest.gitCommit`, was proven. To know what was proven, audit at that commit: the named
+module and everything it imports from the repository, `lakefile.toml`, and the dependency revisions
+pinned in `lake-manifest.json` (the statement's meaning depends on the definitions it pulls from
+them). Check all three of commit, module and theorem name against the predicate; the same theorem
+name can legitimately exist in several modules of one repository.
 
 ### Attestation contents
 
@@ -86,8 +147,15 @@ via `actions/attest`. What a verifier learns is split over two layers:
 | GitHub-hosted vs. self-hosted runner (`runner_environment`) | Certificate (`1.3.6.1.4.1.57264.1.11`) | Same |
 | Prover's repository, ref, run URL, trigger | Certificate (`.12`-`.21`) | Same |
 | Time of signing | Certificate validity / Rekor `integratedTime` | Same |
-| Challenge and solution digests | Statement `subject` **and** predicate `challenge` / `solution` | `subject` lets `gh attestation verify <file>` find the attestation; the predicate copies bind each digest to its *role* (trusted challenge vs. untrusted solution) |
-| Theorem name, result, axiom policy, pinned toolchain | Predicate ([schemas/leanvfy-v1.json](schemas/leanvfy-v1.json)) | Computed by the trusted workflow code; not expressible in the certificate |
+| Challenge and solution tree digests | Statement `subject` **and** predicate `challenge.digest.sha256` / `solution.digest.sha256` | `subject` lets `gh attestation verify` find the attestation; the predicate copies bind each digest to its *role* (trusted challenge vs. untrusted solution) |
+| Challenge and solution commit ids, repository URLs and modules | Predicate `challenge` / `solution` (`digest.gitCommit`, `uri`, `annotations.module`) | The commit id is what a verifier compares against the challenge they audited; the URL is only a locator |
+| Theorem name, result, axiom policy, pinned toolchain (incl. tool patches) | Predicate ([schemas/leanvfy-v1.json](schemas/leanvfy-v1.json)) | Computed by the trusted workflow code; not expressible in the certificate |
+
+The tree digest ([scripts/tree-digest.sh](scripts/tree-digest.sh)) is the sha256 over the lines
+`<mode> <sha256 of blob content> <path>` for every blob of `git ls-tree -r <commit>`, in git's order.
+Git commit ids are SHA-1 in almost every repository and `actions/attest` indexes subjects by sha256;
+the digest binds every path, mode and byte of the checked-out tree independently of SHA-1 and is
+reproducible on any clone of the commit.
 
 The predicate therefore contains **no** workflow identity, runner type, repository or timestamp fields.
 A verifier MUST take those from the certificate and MUST NOT accept a predicate-supplied value in their place.
@@ -110,8 +178,9 @@ checkout at `job.workflow_sha` and therefore fixed by the attested workflow iden
 
 - `lean` points at an official `leanprover/lean4` release tarball and its sha256.
 - `tools` lists the prebuilt binaries (`lean4export`, `comparator`, `nanoda_bin`, `eink0rn`, `landrun`)
-  with their source repository, the exact commit they were built from, the build recipe, the download
-  URL and the sha256 of the resulting binary.
+  with their source repository, the exact commit they were built from, any patches from
+  [patches/](patches/) applied on top, the build recipe, the download URL and the sha256 of the
+  resulting binary.
 
 [scripts/provision-toolchain.sh](scripts/provision-toolchain.sh) downloads each artifact over HTTPS and
 rejects it unless the hash matches; the hash of the lockfile itself ends up in the predicate as
@@ -153,8 +222,40 @@ Security does not depend on the tag: `provision-toolchain.sh` enforces the sha25
 and the whole lockfile is hashed into the attestation. A tag that was deleted and recreated with
 different assets simply fails verification.
 
-<!-- TODO Document usage -->
+## Usage
+
+Call the reusable workflow from a job in the prover's repository:
+
+```yaml
+jobs:
+  verify:
+    uses: theproofnetwork/leanvfy/.github/workflows/leanvfy.yml@<commit>
+    with:
+      theorem: MyChallenge.main
+      challenge_repo: https://github.com/someone/my-challenge
+      challenge_commit: <full commit id>
+      challenge_module: MyChallenge          # default: Challenge
+      solution_repo: https://github.com/prover/my-solution
+      solution_commit: <full commit id>
+      solution_module: MySolution            # default: Solution
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+```
+
+Both repositories must be public Lake packages (there are deliberately no credentials). The challenge
+declares the theorem with `sorry` in `challenge_module`, is configured by `lakefile.toml` (no
+`lakefile.lean` at the root), and pins its dependencies in a committed `lake-manifest.json` (required
+even without dependencies: Lake would otherwise try to create one in the read-only workspace). The solution declares a
+theorem of the same fully-qualified name in `solution_module`, with its proof; it may `require` the
+challenge repository and `import` the modules holding the definitions the statement uses (keep the
+theorem's own module separate from those, since the solution cannot import a module that already
+declares the theorem), or restate the definitions. Neither tree may contain `.lake`
+or Lake build outputs. Everything, dependencies included, is compiled from source with the Lean release
+in [toolchain.lock](toolchain.lock) inside a network-less jail, so keep imports targeted.
 <!-- TODO Document security considerations and mitigations -->
 <!-- TODO verifier script -->
 <!-- TODO resolve todos in workflow -->
 <!-- TODO add git pre-commit hooks to ensure formatting, pinned workflows, security related stuff, ... (and can be used in CI) -->
+<!-- TODO upstream on lean/comparator: request the option to provide exports directly -->

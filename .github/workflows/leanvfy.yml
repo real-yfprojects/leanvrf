@@ -4,16 +4,34 @@ on:
   workflow_call:
     inputs:
       theorem:
-        description: "The Lean theorem identifier to verify"
+        description: "Fully-qualified name of the theorem to verify, as declared in the challenge module"
         required: true
         type: string
-      challenge_url:
-        description: "HTTPS URL to untrusted Challenge.lean"
+      challenge_repo:
+        description: "HTTPS URL of the git repository holding the (trusted by the verifier) challenge Lake package"
         required: true
         type: string
-      solution_url:
-        description: "HTTPS URL to untrusted Solution.lean"
+      challenge_commit:
+        description: "Full commit id of the challenge to check out"
         required: true
+        type: string
+      challenge_module:
+        description: "Module of the challenge package that declares the theorem"
+        required: false
+        default: Challenge
+        type: string
+      solution_repo:
+        description: "HTTPS URL of the git repository holding the untrusted solution Lake package"
+        required: true
+        type: string
+      solution_commit:
+        description: "Full commit id of the solution to check out"
+        required: true
+        type: string
+      solution_module:
+        description: "Module of the solution package that proves the theorem"
+        required: false
+        default: Solution
         type: string
 
 permissions: {}
@@ -41,14 +59,15 @@ jobs:
     permissions:
       contents: read
     env:
-      # Lake project assembled from the untrusted inputs; the comparator jail
-      # mounts it at /work. Nothing on the host ever reads it except by hash.
-      PROJECT: /tmp/project
-      CHALLENGE_MODULE: Challenge
-      SOLUTION_MODULE: Solution
+      # The two Lake workspaces checked out from the untrusted inputs; the
+      # comparator jail mounts them at /work/challenge and /work/solution.
+      # Nothing on the host ever executes anything from them: the host runs
+      # git and jq on them (inside their own jail) and hashes them.
+      CHALLENGE_DIR: /tmp/challenge
+      SOLUTION_DIR: /tmp/solution
     outputs:
-      challenge_sha: ${{ steps.digest.outputs.challenge_sha }}
-      solution_sha: ${{ steps.digest.outputs.solution_sha }}
+      challenge_digest: ${{ steps.digest.outputs.challenge_digest }}
+      solution_digest: ${{ steps.digest.outputs.solution_digest }}
       verdict: ${{ steps.verdict.outputs.verdict }}
     steps:
       # Check out *this* reusable workflow's repository at the exact commit that
@@ -64,8 +83,36 @@ jobs:
           path: leanvfy
           persist-credentials: false
 
+      # Inputs are only ever passed through `env:`, never spliced into a
+      # script, and rejected here unless they have exactly the shape the rest
+      # of the pipeline assumes. The scripts re-check their own arguments.
+      - name: Validate Inputs
+        env:
+          THEOREM: ${{ inputs.theorem }}
+          CHALLENGE_REPO: ${{ inputs.challenge_repo }}
+          CHALLENGE_COMMIT: ${{ inputs.challenge_commit }}
+          CHALLENGE_MODULE: ${{ inputs.challenge_module }}
+          SOLUTION_REPO: ${{ inputs.solution_repo }}
+          SOLUTION_COMMIT: ${{ inputs.solution_commit }}
+          SOLUTION_MODULE: ${{ inputs.solution_module }}
+        run: |
+          set -euo pipefail
+          fail() { echo "Error: $1" >&2; exit 1; }
+          [[ "$THEOREM" =~ ^[^[:space:][:cntrl:]]+$ ]] || fail "theorem must be a single Lean declaration name"
+          for v in CHALLENGE_REPO SOLUTION_REPO; do
+            [[ "${!v}" =~ ^https://[^[:space:][:cntrl:]@]+$ ]] || fail "$v must be an https:// URL without userinfo"
+          done
+          for v in CHALLENGE_COMMIT SOLUTION_COMMIT; do
+            [[ "${!v}" =~ ^([a-f0-9]{40}|[a-f0-9]{64})$ ]] || fail "$v must be a full lowercase commit id"
+          done
+          for v in CHALLENGE_MODULE SOLUTION_MODULE; do
+            [[ "${!v}" =~ ^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$ ]] || fail "$v must be a dotted Lean module name"
+          done
+          echo "Inputs accepted"
+
       # git is needed inside the comparator jail (comparator resolves it at
-      # start-up); the runner image ships it, but do not depend on that.
+      # start-up) and for the checkouts below; the runner image ships it, but do
+      # not depend on that.
       - name: Install System Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -79,57 +126,76 @@ jobs:
       - name: Provision Pinned Toolchain
         run: bash leanvfy/scripts/provision-toolchain.sh leanvfy/toolchain.lock
 
-      # TODO: Handle multi file challenges and solutions
-      # TODO: allow reaching solution via actions/checkout
       # The URLs are prover-controlled locators and nothing about them is
-      # trusted; the attestation binds the sha256 of whatever bytes arrived,
-      # computed here by trusted code. fetch-untrusted.sh only makes sure curl
-      # cannot do anything other than write the response body to the given path.
-      - name: Fetch Untrusted Inputs & Calculate Hashes
+      # trusted; the commit ids are content addresses, and the attestation binds
+      # a sha256 over the checked-out tree computed here by trusted code.
+      # fetch-repo.sh runs git inside its own network-enabled jail and accepts
+      # only https, only the requested commit, and only trees without Lake build
+      # outputs (a committed .olean would let the exported environment differ
+      # from what a reviewer of the sources sees). The challenge must be
+      # configured by lakefile.toml, which cannot run code, so that nothing but
+      # its sources and its pinned dependencies determine what is exported.
+      - name: Fetch Untrusted Repositories & Compute Tree Digests
         id: digest
         env:
-          CHALLENGE_URL: ${{ inputs.challenge_url }}
-          SOLUTION_URL: ${{ inputs.solution_url }}
+          CHALLENGE_REPO: ${{ inputs.challenge_repo }}
+          CHALLENGE_COMMIT: ${{ inputs.challenge_commit }}
+          SOLUTION_REPO: ${{ inputs.solution_repo }}
+          SOLUTION_COMMIT: ${{ inputs.solution_commit }}
         run: |
           set -euo pipefail
-          bash leanvfy/scripts/fetch-untrusted.sh "$CHALLENGE_URL" "$PROJECT/$CHALLENGE_MODULE.lean"
-          bash leanvfy/scripts/fetch-untrusted.sh "$SOLUTION_URL"  "$PROJECT/$SOLUTION_MODULE.lean"
+          bash leanvfy/scripts/fetch-repo.sh --require-toml "$CHALLENGE_REPO" "$CHALLENGE_COMMIT" "$CHALLENGE_DIR"
+          bash leanvfy/scripts/fetch-repo.sh "$SOLUTION_REPO" "$SOLUTION_COMMIT" "$SOLUTION_DIR"
 
-          echo "challenge_sha=$(sha256sum "$PROJECT/$CHALLENGE_MODULE.lean" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "solution_sha=$(sha256sum "$PROJECT/$SOLUTION_MODULE.lean" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "challenge_digest=$(bash leanvfy/scripts/tree-digest.sh "$CHALLENGE_DIR" "$CHALLENGE_COMMIT")" >> "$GITHUB_OUTPUT"
+          echo "solution_digest=$(bash leanvfy/scripts/tree-digest.sh "$SOLUTION_DIR" "$SOLUTION_COMMIT")" >> "$GITHUB_OUTPUT"
 
-      # comparator works on a Lake project (lakefile.toml with one lean_lib per
-      # module) rather than on loose files or pre-made exports. Assembling it
-      # is trusted code; nothing from the inputs but the two .lean files is
-      # used. The host never has Lean in PATH: building and verifying happen
-      # inside a bubblewrap jail only, and this assert enforces that.
-      - name: Set Up Lake Project
+      # The jail has no network, so every dependency either workspace needs is
+      # checked out here, at the exact revision its lake-manifest.json pins,
+      # through the same fetch-repo.sh jail and tree policy. Lake itself never
+      # runs on the host: `lake update` would elaborate dependency lakefiles.
+      # The challenge's dependencies are thereby fixed by the attested challenge
+      # commit; the solution's are as untrusted as the solution and judged the
+      # same way (exported closure, three kernels).
+      - name: Materialize Pinned Dependencies
+        run: |
+          set -euo pipefail
+          bash leanvfy/scripts/materialize-deps.sh "$CHALLENGE_DIR"
+          bash leanvfy/scripts/materialize-deps.sh "$SOLUTION_DIR"
+
+      # The host never has Lean in PATH: building and verifying happen inside a
+      # bubblewrap jail only, and this assert enforces that.
+      - name: Assert No Lean On Host
         run: |
           set -euo pipefail
           if command -v lean || command -v lake; then
             echo "Security violation: Lean toolchain reachable on the host." >&2
             exit 1
           fi
-          bash leanvfy/scripts/init-project.sh "$PROJECT" leanvfy/toolchain.lock \
-            "$CHALLENGE_MODULE" "$SOLUTION_MODULE"
 
       # -----------------------------------------------------------------------
       # SANDBOXED COMPARATOR RUN
       # -----------------------------------------------------------------------
-      # Inside the jail, comparator builds and exports the challenge (under
-      # landrun) before any solution code runs, then builds and exports the
-      # solution the same way; elaborating the solution is the only point where
-      # untrusted code executes. It checks that the solution states the theorem
-      # exactly as the challenge does and uses only whitelisted axioms, then
-      # hands the one solution export to every kernel in `external_kernels`
-      # (each under landrun) and replays it through the Lean kernel in-process.
-      # All kernels judge the same bytes, so nothing outside the jail needs to
-      # read .lake, and comparator's exit status is the joint verdict. Kernel
-      # names containing "noda" receive nanoda's JSON config instead of the
-      # export path; everything else gets the path as its last argument.
+      # Inside the jail, comparator builds and exports the challenge workspace
+      # (under landrun, writable only in its .lake) before anything from the
+      # solution workspace runs, then builds and exports the solution the same
+      # way. Both builds execute prover-supplied code; the challenge export is
+      # in comparator's memory before the solution build starts and neither
+      # build can write into the other workspace. comparator checks that the
+      # solution states the theorem exactly as the challenge does (the whole
+      # closure of the statement, constant by constant) and uses only
+      # whitelisted axioms, then hands the one solution export to every kernel
+      # in `external_kernels` (each under landrun) and replays it through the
+      # Lean kernel in-process. All kernels judge the same bytes, so nothing
+      # outside the jail needs to read either .lake, and comparator's exit
+      # status is the joint verdict. Kernel names containing "noda" receive
+      # nanoda's JSON config instead of the export path; everything else gets
+      # the path as its last argument.
       - name: Comparator, Lean Kernel, nanoda & eink0rn (sandboxed)
         env:
           THEOREM: ${{ inputs.theorem }}
+          CHALLENGE_MODULE: ${{ inputs.challenge_module }}
+          SOLUTION_MODULE: ${{ inputs.solution_module }}
         run: |
           set -euo pipefail
           jq -n \
@@ -138,6 +204,8 @@ jobs:
             --arg theorem "$THEOREM" \
             --arg axioms "$ALLOWED_AXIOMS" \
             '{
+              challenge_dir: "/work/challenge",
+              solution_dir: "/work/solution",
               challenge_module: $challenge,
               solution_module: $solution,
               theorem_names: [$theorem],
@@ -148,7 +216,7 @@ jobs:
               }
             }' > /tmp/comparator.json
           cat /tmp/comparator.json
-          bash leanvfy/scripts/sandboxed-comparator.sh "$PROJECT" /tmp/comparator.json
+          bash leanvfy/scripts/sandboxed-comparator.sh "$CHALLENGE_DIR" "$SOLUTION_DIR" /tmp/comparator.json
 
       # Reached only if every step above exited 0.
       - name: Record Verdict
@@ -199,23 +267,32 @@ jobs:
       - name: Build Verification Predicate
         env:
           THEOREM: ${{ inputs.theorem }}
-          CHALLENGE_URL: ${{ inputs.challenge_url }}
-          CHALLENGE_SHA: ${{ needs.evaluate.outputs.challenge_sha }}
-          SOLUTION_URL: ${{ inputs.solution_url }}
-          SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
+          CHALLENGE_REPO: ${{ inputs.challenge_repo }}
+          CHALLENGE_COMMIT: ${{ inputs.challenge_commit }}
+          CHALLENGE_MODULE: ${{ inputs.challenge_module }}
+          CHALLENGE_DIGEST: ${{ needs.evaluate.outputs.challenge_digest }}
+          SOLUTION_REPO: ${{ inputs.solution_repo }}
+          SOLUTION_COMMIT: ${{ inputs.solution_commit }}
+          SOLUTION_MODULE: ${{ inputs.solution_module }}
+          SOLUTION_DIGEST: ${{ needs.evaluate.outputs.solution_digest }}
           # Same trusted checkout as the evaluate job; expanded into the toolchain block
           TOOLCHAIN_LOCK: leanvfy/toolchain.lock
           SCHEMA_FILE: leanvfy/schemas/leanvfy-v1.json
         run: bash leanvfy/scripts/build-predicate.sh /tmp/attest/predicate.json
 
+      # Subjects are the tree digests (scripts/tree-digest.sh) of the two
+      # checkouts, named after the commits they were computed from, so that
+      # `gh attestation verify` can find the attestation from either digest.
       - name: Prepare Subjects
         env:
-          CHALLENGE_SHA: ${{ needs.evaluate.outputs.challenge_sha }}
-          SOLUTION_SHA: ${{ needs.evaluate.outputs.solution_sha }}
+          CHALLENGE_COMMIT: ${{ inputs.challenge_commit }}
+          CHALLENGE_DIGEST: ${{ needs.evaluate.outputs.challenge_digest }}
+          SOLUTION_COMMIT: ${{ inputs.solution_commit }}
+          SOLUTION_DIGEST: ${{ needs.evaluate.outputs.solution_digest }}
         run: |
           cat <<EOF > /tmp/attest/subjects.checksums
-          $CHALLENGE_SHA  Challenge.lean
-          $SOLUTION_SHA   Solution.lean
+          $CHALLENGE_DIGEST  challenge@$CHALLENGE_COMMIT
+          $SOLUTION_DIGEST  solution@$SOLUTION_COMMIT
           EOF
 
       - name: Sign & Mint Attestation

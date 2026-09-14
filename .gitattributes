@@ -3,3 +3,4 @@
 *.yml text eol=lf
 *.json text eol=lf
 *.lock text eol=lf
+*.patch text eol=lf

@@ -5,10 +5,14 @@
 #
 # Required environment:
 #   THEOREM           Fully-qualified Lean declaration that was verified
-#   CHALLENGE_URL     Where Challenge.lean was fetched from
-#   CHALLENGE_SHA     SHA-256 of Challenge.lean (hex)
-#   SOLUTION_URL      Where Solution.lean was fetched from
-#   SOLUTION_SHA      SHA-256 of Solution.lean (hex)
+#   CHALLENGE_REPO    Where the challenge repository was fetched from (locator only)
+#   CHALLENGE_COMMIT  Commit id of the challenge that was checked out
+#   CHALLENGE_MODULE  Module of the challenge package the theorem was exported from
+#   CHALLENGE_DIGEST  Tree digest (scripts/tree-digest.sh) of that checkout, hex sha256
+#   SOLUTION_REPO     Where the solution repository was fetched from (locator only)
+#   SOLUTION_COMMIT   Commit id of the solution that was checked out
+#   SOLUTION_MODULE   Module of the solution package the theorem was exported from
+#   SOLUTION_DIGEST   Tree digest of that checkout, hex sha256
 #   ALLOWED_AXIOMS    Comma-separated axiom whitelist the kernels were run with
 #   TOOLCHAIN_LOCK    Path to toolchain.lock from the trusted checkout; its
 #                     entries populate the `toolchain` block verbatim
@@ -27,7 +31,9 @@ if [ -z "$out" ]; then
     exit 1
 fi
 
-for var in THEOREM CHALLENGE_URL CHALLENGE_SHA SOLUTION_URL SOLUTION_SHA ALLOWED_AXIOMS TOOLCHAIN_LOCK SCHEMA_FILE; do
+for var in THEOREM CHALLENGE_REPO CHALLENGE_COMMIT CHALLENGE_MODULE CHALLENGE_DIGEST \
+           SOLUTION_REPO SOLUTION_COMMIT SOLUTION_MODULE SOLUTION_DIGEST \
+           ALLOWED_AXIOMS TOOLCHAIN_LOCK SCHEMA_FILE; do
     if [ -z "${!var:-}" ]; then
         echo "Error: required environment variable $var is not set" >&2
         exit 1
@@ -49,20 +55,38 @@ lock_sha="$(sha256sum "$TOOLCHAIN_LOCK" | awk '{print $1}')"
 
 # Artifact references use in-toto ResourceDescriptors: name + uri + digest,
 # with leanvfy-specific facts under `annotations` (in-toto's extension point).
+# For the two repositories `gitCommit` is the identity a verifier compares
+# against the challenge they audited, and `sha256` the tree digest that
+# doubles as attestation subject. A tool built from a patched checkout lists the
+# patch files (paths in this repository at the attested workflow commit).
 jq -n \
   --arg theorem "$THEOREM" \
-  --arg challenge_url "$CHALLENGE_URL" \
-  --arg challenge_sha "$CHALLENGE_SHA" \
-  --arg solution_url "$SOLUTION_URL" \
-  --arg solution_sha "$SOLUTION_SHA" \
+  --arg challenge_repo "$CHALLENGE_REPO" \
+  --arg challenge_commit "$CHALLENGE_COMMIT" \
+  --arg challenge_module "$CHALLENGE_MODULE" \
+  --arg challenge_digest "$CHALLENGE_DIGEST" \
+  --arg solution_repo "$SOLUTION_REPO" \
+  --arg solution_commit "$SOLUTION_COMMIT" \
+  --arg solution_module "$SOLUTION_MODULE" \
+  --arg solution_digest "$SOLUTION_DIGEST" \
   --arg allowed_axioms "$ALLOWED_AXIOMS" \
   --arg lock_sha "$lock_sha" \
   --slurpfile lock "$TOOLCHAIN_LOCK" \
   '{
     verificationResult: "PASSED",
     theorem: $theorem,
-    challenge: { name: "Challenge.lean", uri: $challenge_url, digest: { sha256: $challenge_sha } },
-    solution:  { name: "Solution.lean",  uri: $solution_url,  digest: { sha256: $solution_sha } },
+    challenge: {
+      name: ("challenge@" + $challenge_commit),
+      uri: $challenge_repo,
+      digest: { gitCommit: $challenge_commit, sha256: $challenge_digest },
+      annotations: { module: $challenge_module }
+    },
+    solution: {
+      name: ("solution@" + $solution_commit),
+      uri: $solution_repo,
+      digest: { gitCommit: $solution_commit, sha256: $solution_digest },
+      annotations: { module: $solution_module }
+    },
     policy: {
       allowedAxioms: ($allowed_axioms | split(",") | map(select(length > 0)))
     },
@@ -80,7 +104,8 @@ jq -n \
             name: .name,
             uri: .url,
             digest: { sha256: .sha256 },
-            annotations: { repository: .repo, commit: .commit, engine: .engine }
+            annotations: ({ repository: .repo, commit: .commit, engine: .engine }
+              + (if (.patches // []) | length > 0 then { patches: .patches } else {} end))
           }
       ]
     }
