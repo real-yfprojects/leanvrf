@@ -42,6 +42,11 @@ jobs:
       - name: User namespace restriction still applies to everything but bwrap
         run: |
           set -euo pipefail
+          uname -r; id; sysctl kernel.apparmor_restrict_unprivileged_userns kernel.apparmor_restrict_unprivileged_unconfined || true
+          cat /proc/self/attr/apparmor/current; ls /sys/kernel/security/apparmor/features/ || true
+          cat /sys/kernel/security/apparmor/features/namespaces/* 2>/dev/null || true
+          sudo aa-status 2>/dev/null | head -40 || true
+          python3 -c 'import os; os.unshare(os.CLONE_NEWUSER); print("userns created; uid_map:", open("/proc/self/uid_map").read().strip(), "label:", open("/proc/self/attr/apparmor/current").read().strip())' || echo "python denied: $?"
           [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1 ]
           [ "$(cat /proc/self/attr/apparmor/current)" = unconfined ]
           if python3 -c 'import os; os.unshare(os.CLONE_NEWUSER)' 2>/dev/null; then
