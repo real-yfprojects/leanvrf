@@ -92,7 +92,10 @@ no submodules. The tree must not contain a `.lake` entry at any depth nor Lake b
 (`*.olean`, `*.ilean`, `*.trace`, `*.hash`): a committed olean with a matching trace would make
 `lake build` a no-op and the exported environment would come from bytes no reviewer of the sources
 sees. `.lake` is created empty by the workflow, so every olean the run reads was produced in this run
-by the attested toolchain from the committed sources.
+by the attested toolchain from the committed sources. Every later git invocation on a checkout (the
+tree digest below) goes through the same jail ([scripts/git-jail.sh](scripts/git-jail.sh)), read-only
+and without network: reading packs and resolving deltas are git code paths of their own, and the
+object store is prover-controlled bytes, so no git process ever touches them outside a jail.
 
 Dependencies come from each repository's `lake-manifest.json`, which lists the flattened transitive
 set with a git URL and an exact revision per package. [scripts/materialize-deps.sh](scripts/materialize-deps.sh)

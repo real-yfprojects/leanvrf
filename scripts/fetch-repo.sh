@@ -18,14 +18,12 @@
 #   - https only, also across redirects: protocol.allow=never plus an explicit allow for
 #     https closes ext:: (command execution), file://, ssh://, git:// and any other
 #     transport; the URL is validated first and passed after `--`.
-#   - no credentials, no prompts, no host git config: GIT_CONFIG_GLOBAL/SYSTEM point at
-#     /dev/null, credential.helper is emptied, GIT_TERMINAL_PROMPT=0. The prover cannot
+#   - no credentials, no prompts, no host git config (see git-jail.sh). The prover cannot
 #     make git use anything the runner may hold, and private repositories simply fail.
-#   - git runs inside a bubblewrap jail that has the network but can write only to the
-#     destination directory (own user/pid/ipc namespaces, no nested user namespaces, empty
-#     environment). Hostile packfiles are parsed there; a git bug yields a throwaway jail
-#     and a directory the pipeline treats as untrusted anyway. transfer/fetch.fsckObjects
-#     reject malformed objects up front.
+#   - git runs inside the bubblewrap jail of git-jail.sh, which has the network but can
+#     write only to the destination directory. Hostile packfiles are parsed there; a git
+#     bug yields a throwaway jail and a directory the pipeline treats as untrusted anyway.
+#     transfer/fetch.fsckObjects reject malformed objects up front.
 #   - exactly the requested commit: fetched by id (full fetch as fallback for hosts that do
 #     not serve arbitrary ids), checked out detached, HEAD compared to the argument.
 #     Git's SHA-1 implementation detects collision attacks on receipt.
@@ -34,7 +32,7 @@
 #     no clean/smudge filters (they need configuration that does not exist here).
 #   - the tree may not contain `.lake` at any depth, nor Lake build outputs (*.olean,
 #     *.ilean, *.trace, *.hash). The workflow bind-mounts <dest_dir>/.lake read-write into
-#     the comparator jail, so a committed `.lake` (a symlink, say) would redirect that
+#     the build jail, so a committed `.lake` (a symlink, say) would redirect that
 #     mount; and a committed olean with a matching trace would make `lake build` a no-op,
 #     letting the exported environment come from bytes nobody reviewing the sources sees.
 #     `.lake` is created empty afterwards, so every olean the run reads was built here.
@@ -73,52 +71,12 @@ fi
 mkdir -p "$dest"
 dest="$(realpath "$dest")"
 
-# Everything git does happens inside this jail. /etc/ssl is the CA bundle for TLS,
-# resolv.conf/hosts/nsswitch.conf name resolution, passwd lets git look up the user
-# it runs as; there is no /etc/gitconfig and no HOME with a .gitconfig. The command
-# line is the whole configuration.
-git_in_jail() {
-    bwrap \
-        --unshare-all \
-        --unshare-user \
-        --share-net \
-        --disable-userns \
-        --die-with-parent \
-        --ro-bind /usr /usr \
-        --ro-bind /lib /lib \
-        --ro-bind /lib64 /lib64 \
-        --ro-bind /bin /bin \
-        --ro-bind /etc/ssl /etc/ssl \
-        --ro-bind /etc/resolv.conf /etc/resolv.conf \
-        --ro-bind-try /etc/hosts /etc/hosts \
-        --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf \
-        --ro-bind-try /etc/passwd /etc/passwd \
-        --bind "$dest" /dest \
-        --tmpfs /tmp \
-        --proc /proc \
-        --dev /dev \
-        --chdir /dest \
-        env -i \
-            PATH="/usr/bin:/bin" \
-            HOME="/tmp" \
-            GIT_CONFIG_GLOBAL=/dev/null \
-            GIT_CONFIG_SYSTEM=/dev/null \
-            GIT_CONFIG_NOSYSTEM=1 \
-            GIT_TERMINAL_PROMPT=0 \
-            GIT_ASKPASS=/bin/false \
-        git \
-            -c protocol.allow=never \
-            -c protocol.https.allow=always \
-            -c credential.helper= \
-            -c core.hooksPath=/dev/null \
-            -c core.askPass=/bin/false \
-            -c submodule.recurse=false \
-            -c transfer.fsckObjects=true \
-            -c fetch.fsckObjects=true \
-            -c http.sslVerify=true \
-            -c advice.detachedHead=false \
-            "$@"
-}
+# All git invocations run inside the jail described in git-jail.sh, with the
+# destination writable and the network shared.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/git-jail.sh
+source "$here/git-jail.sh"
+git_in_jail() { git_jail "$dest" fetch git "$@"; }
 
 git_in_jail init -q
 git_in_jail remote add origin -- "$url"
