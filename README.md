@@ -21,13 +21,16 @@ one has to deal with adversarial theorem descriptions (challenges) and proof the
 Not only can they try to exploit unpatched bugs in a lean kernel, add axioms or redefine objects referenced in the statement,
 but lean theories allow arbitrary code execution inside the workflow.
 
-This workflow thus compiles the challenge lean theory and the solution lean theory
-separate from each other (using lean4export) in a sandboxed environment,
-uses lean comparator to ensure that the challenge and solution theories match and
-don't employ any dishonest tricks and checks the solution theory for correctness
-not only using the official lean kernel, but also using nanoda and lean4lean.
+This workflow thus runs lean comparator inside a sealed sandbox. Comparator builds and exports
+(with lean4export) the challenge lean theory before any solution code runs, then builds and exports
+the solution lean theory the same way, each build inside its own landrun sandbox (the only places where
+untrusted code runs), ensures that the challenge and solution theories match and don't employ any
+dishonest tricks, and checks the one solution export for correctness not only using the official lean kernel,
+but also using nanoda and eink0rn, two independently implemented kernels that consume the
+[lean4export](https://github.com/leanprover/lean4export) format and are tracked on the
+[Lean Kernel Arena](https://arena.lean-lang.org/).
 This helps guarding against exploits that are only present in one of the kernels.
-Note that comparator, nanoda and lean4lean all run in separate sandboxes.
+Every kernel judges the same exported bytes, and each external kernel runs in its own landrun sandbox.
 
 ## Adversarial model
 
@@ -56,7 +59,10 @@ can only be obtained by the workflow they claim to come from.
 We trust our pinned toolchain dependencies and the tools used in the workflow.
 
 In the lean kernels we only put a 1-out-of-n trust. Thus we only assume
-that not all of the (currently) three kernels (lean, nanoda, lean4lean) can be exploited at a time.
+that not all of the (currently) three kernels (lean, nanoda, eink0rn) can be exploited at a time.
+They were chosen for different lineages: nanoda is an independent Rust implementation of the C++ kernel's
+algorithm, eink0rn a clean-room Haskell kernel with a different checking strategy. Kernels that share code
+with the C++ kernel (such as lean4lean, which uses Lean's own `Expr` primitives) add less to this assumption.
 
 Since the prover pays for the runtime, we don not care about DoS type attacks like consuming lots of CPU time or memory or disk space.
 
@@ -103,7 +109,7 @@ Actions cache. Everything comes from [toolchain.lock](toolchain.lock), which is 
 checkout at `job.workflow_sha` and therefore fixed by the attested workflow identity:
 
 - `lean` points at an official `leanprover/lean4` release tarball and its sha256.
-- `tools` lists the prebuilt binaries (`lean4export`, `comparator`, `nanoda_bin`, `lean4lean`, `landrun`)
+- `tools` lists the prebuilt binaries (`lean4export`, `comparator`, `nanoda_bin`, `eink0rn`, `landrun`)
   with their source repository, the exact commit they were built from, the build recipe, the download
   URL and the sha256 of the resulting binary.
 
@@ -118,7 +124,7 @@ The tool binaries are built by [build-tools.yml](.github/workflows/build-tools.y
 (`workflow_dispatch`, maintainers only) via [scripts/build-tools.sh](scripts/build-tools.sh):
 each tool is cloned at its pinned commit and compiled against the locked Lean release itself
 (not via `elan`), so the Lean-based tools accept exactly the `.olean` files the verification
-workflow produces. The Rust and Go compilers for the non-Lean tools come from the hash-pinned
+workflow produces. The Rust, Go and GHC compilers for the non-Lean tools come from the hash-pinned
 official tarballs in the lockfile's `build_toolchains` block rather than from the runner image,
 so a rebuild of the same lockfile uses the same compilers.
 The binaries get an `actions/attest-build-provenance` attestation and are

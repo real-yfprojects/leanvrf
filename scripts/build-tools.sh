@@ -7,10 +7,12 @@
 #   LEAN_ROOT   Provisioned Lean toolchain used for `lake` builds (default: /opt/lean)
 #
 # Each tool is cloned at exactly `commit` (verified after checkout), built with
-# the recipe named by `build` (lake | cargo | go) and copied to <dist_dir>/<name>.
+# the recipe named by `build` (lake | cargo | go | script) and copied to
+# <dist_dir>/<name>. `script` runs the tool's own build script from the pinned
+# checkout (`script` field) and takes `artifact` from where it puts the binary.
 # Lake builds use the locked Lean release, not elan, so every Lean-based tool
-# is compiled against the same toolchain that will later run it. Rust and Go
-# come from the hash-pinned tarballs in `build_toolchains`, never from the
+# is compiled against the same toolchain that will later run it. Rust, Go and
+# GHC come from the hash-pinned tarballs in `build_toolchains`, never from the
 # runner image. Afterwards <dist_dir>/SHA256SUMS and <dist_dir>/toolchain.lock
 # (the input lock with the fresh hashes filled in) are written.
 set -euo pipefail
@@ -60,7 +62,7 @@ fetch_pinned() {
     echo "$sha  $dest" | sha256sum -c --quiet -
 }
 
-# Rust and Go from the hash-pinned tarballs in `build_toolchains`, installed
+# Rust, Go and GHC from the hash-pinned tarballs in `build_toolchains`, installed
 # into the scratch dir and put in front of whatever the runner image ships.
 echo "::group::Provision build toolchains"
 rust_version="$(jq -er '.build_toolchains.rust.version' "$lock")"
@@ -88,7 +90,20 @@ if ! go version | grep -qF " $go_version "; then
     echo "Error: go in PATH is '$(go version)', lockfile wants $go_version" >&2
     exit 1
 fi
-echo "rust: $(cargo --version)   go: $(go version)   lean: $(lean --version)"
+ghc_version="$(jq -er '.build_toolchains.ghc.version' "$lock")"
+fetch_pinned "$(jq -er '.build_toolchains.ghc.url' "$lock")" \
+             "$(jq -er '.build_toolchains.ghc.sha256' "$lock")" "$work/ghc.tar.xz"
+mkdir "$work/ghc-dist"
+tar -xJf "$work/ghc.tar.xz" -C "$work/ghc-dist" --strip-components=1
+# A GHC bindist is relocated by its configure script; nothing is compiled here.
+# Linking Haskell programs later needs the runner's gcc and libgmp-dev.
+(cd "$work/ghc-dist" && ./configure --prefix="$work/ghc" >/dev/null && make install >/dev/null)
+export PATH="$work/ghc/bin:$PATH"
+if [ "$(ghc --numeric-version)" != "$ghc_version" ]; then
+    echo "Error: ghc in PATH is '$(ghc --numeric-version)', lockfile wants $ghc_version" >&2
+    exit 1
+fi
+echo "rust: $(cargo --version)   go: $(go version)   ghc: $(ghc --numeric-version)   lean: $(lean --version)"
 echo "::endgroup::"
 
 clone_pinned() {
@@ -135,6 +150,12 @@ for ((i = 0; i < n; i++)); do
         go)
             package="$(jq -er '.package' <<<"$tool")"
             (cd "$src" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$dist/$name" "$package")
+            ;;
+        script)
+            script="$(jq -er '.script' <<<"$tool")"
+            artifact="$(jq -er '.artifact' <<<"$tool")"
+            (cd "$src" && bash -c -- "$script")
+            cp "$src/$artifact" "$dist/$name"
             ;;
         *)
             echo "Error: unknown build kind '$build' for $name" >&2

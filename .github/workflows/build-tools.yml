@@ -42,10 +42,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # libgmp-dev and libncurses-dev: the pinned GHC bindist links Haskell
+      # programs against the system libgmp and needs libtinfo to run.
       - name: Install System Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            jq zstd xz-utils curl git file
+            jq zstd xz-utils curl git file make gcc libgmp-dev libncurses-dev
 
       - name: Resolve release tag
         id: tag
@@ -79,7 +81,7 @@ jobs:
       - name: Provision locked Lean release
         run: bash scripts/provision-toolchain.sh --lean-only toolchain.lock
 
-      # Rust and Go are provisioned by the script itself from the hash-pinned
+      # Rust, Go and GHC are provisioned by the script itself from the hash-pinned
       # tarballs in toolchain.lock (build_toolchains), not from the runner image.
       - name: Build tools from pinned sources
         run: bash scripts/build-tools.sh toolchain.lock dist
