@@ -25,6 +25,9 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
                        bubblewrap jq curl git openssl python3 ca-certificates shellcheck
+          # Same as leanvfy.yml: bwrap's --disable-userns needs unrestricted
+          # unprivileged user namespaces on Ubuntu 24.04.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Syntax & ShellCheck
         run: |

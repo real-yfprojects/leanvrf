@@ -117,6 +117,12 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
                        bubblewrap jq curl coreutils zstd git
+          # Ubuntu 24.04 confines unprivileged user namespaces with AppArmor;
+          # under that profile bwrap cannot set up the nested namespace that
+          # --disable-userns relies on ("setting up uid map: Permission
+          # denied"). Lift the restriction for the runner user: the jails
+          # themselves still forbid nested user namespaces to the code inside.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
 
       # Fetches the Lean release from leanprover/lean4 and the prebuilt verifier
       # binaries from this repo's releases, each checked against the sha256 in
