@@ -86,7 +86,7 @@ fetch_pinned() {
 echo "::group::Provision build toolchains"
 rust_version="$(jq -er '.build_toolchains.rust.version' "$lock")"
 fetch_pinned "$(jq -er '.build_toolchains.rust.url' "$lock")" \
-             "$(jq -er '.build_toolchains.rust.sha256' "$lock")" "$work/rust.tar.xz"
+    "$(jq -er '.build_toolchains.rust.sha256' "$lock")" "$work/rust.tar.xz"
 mkdir "$work/rust-dist"
 tar -xJf "$work/rust.tar.xz" -C "$work/rust-dist" --strip-components=1
 # Only the compiler, std and cargo; the tarball also carries docs, clippy, ...
@@ -100,8 +100,8 @@ fi
 
 go_version="$(jq -er '.build_toolchains.go.version' "$lock")"
 fetch_pinned "$(jq -er '.build_toolchains.go.url' "$lock")" \
-             "$(jq -er '.build_toolchains.go.sha256' "$lock")" "$work/go.tar.gz"
-tar -xzf "$work/go.tar.gz" -C "$work"   # unpacks to $work/go
+    "$(jq -er '.build_toolchains.go.sha256' "$lock")" "$work/go.tar.gz"
+tar -xzf "$work/go.tar.gz" -C "$work" # unpacks to $work/go
 export PATH="$work/go/bin:$PATH"
 # Never let go auto-download a newer toolchain because a go.mod asks for one.
 export GOTOOLCHAIN=local
@@ -111,7 +111,7 @@ if ! go version | grep -qF " $go_version "; then
 fi
 ghc_version="$(jq -er '.build_toolchains.ghc.version' "$lock")"
 fetch_pinned "$(jq -er '.build_toolchains.ghc.url' "$lock")" \
-             "$(jq -er '.build_toolchains.ghc.sha256' "$lock")" "$work/ghc.tar.xz"
+    "$(jq -er '.build_toolchains.ghc.sha256' "$lock")" "$work/ghc.tar.xz"
 mkdir "$work/ghc-dist"
 tar -xJf "$work/ghc.tar.xz" -C "$work/ghc-dist" --strip-components=1
 # A GHC bindist is relocated by its configure script; nothing is compiled here.
@@ -159,8 +159,8 @@ audit_elf() {
     local level="::warning::"
     [ "$strict" = 1 ] && level="::error::"
     local missing=()
-    grep -qE 'Type:\s+DYN' <<<"$hdr"       || missing+=("PIE")
-    grep -qE '^\s*GNU_RELRO\s' <<<"$hdr"  || missing+=("RELRO")
+    grep -qE 'Type:\s+DYN' <<<"$hdr" || missing+=("PIE")
+    grep -qE '^\s*GNU_RELRO\s' <<<"$hdr" || missing+=("RELRO")
     grep -qE '\(BIND_NOW\)|\(FLAGS\)\s.*BIND_NOW|\(FLAGS_1\)\s.*NOW' <<<"$dyn" || missing+=("BIND_NOW")
     if [ "${#missing[@]}" -gt 0 ]; then
         echo "${level}$f lacks: ${missing[*]}" >&2
@@ -250,9 +250,9 @@ done
 # Checksums + a copy of the lock with the real hashes, ready to commit.
 # Names were validated above as single safe words, so splitting is the intent.
 # shellcheck disable=SC2046
-(cd "$dist" && sha256sum -- $(jq -r '.tools[].name' "$lock") > SHA256SUMS && cat SHA256SUMS)
+(cd "$dist" && sha256sum -- $(jq -r '.tools[].name' "$lock") >SHA256SUMS && cat SHA256SUMS)
 
 jq --rawfile sums "$dist/SHA256SUMS" '
   ($sums | split("\n") | map(select(length > 0) | split("  ") | {key: .[1], value: .[0]}) | from_entries) as $h
   | .tools |= map(.sha256 = $h[.name])
-' "$lock" > "$dist/toolchain.lock"
+' "$lock" >"$dist/toolchain.lock"

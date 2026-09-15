@@ -1,0 +1,6 @@
+# Applied by the prettier pre-commit hook to YAML and JSON (not Markdown, not
+# toolchain.lock; see .pre-commit-config.yaml).
+overrides:
+  - files: "schemas/*.json"
+    options:
+      tabWidth: 4

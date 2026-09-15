@@ -32,8 +32,8 @@ if [ -z "$out" ]; then
 fi
 
 for var in THEOREM CHALLENGE_REPO CHALLENGE_COMMIT CHALLENGE_MODULE CHALLENGE_DIGEST \
-           SOLUTION_REPO SOLUTION_COMMIT SOLUTION_MODULE SOLUTION_DIGEST \
-           ALLOWED_AXIOMS TOOLCHAIN_LOCK SCHEMA_FILE; do
+    SOLUTION_REPO SOLUTION_COMMIT SOLUTION_MODULE SOLUTION_DIGEST \
+    ALLOWED_AXIOMS TOOLCHAIN_LOCK SCHEMA_FILE; do
     if [ -z "${!var:-}" ]; then
         echo "Error: required environment variable $var is not set" >&2
         exit 1
@@ -60,19 +60,19 @@ lock_sha="$(sha256sum "$TOOLCHAIN_LOCK" | awk '{print $1}')"
 # doubles as attestation subject. A tool built from a patched checkout lists the
 # patch files (paths in this repository at the attested workflow commit).
 jq -n \
-  --arg theorem "$THEOREM" \
-  --arg challenge_repo "$CHALLENGE_REPO" \
-  --arg challenge_commit "$CHALLENGE_COMMIT" \
-  --arg challenge_module "$CHALLENGE_MODULE" \
-  --arg challenge_digest "$CHALLENGE_DIGEST" \
-  --arg solution_repo "$SOLUTION_REPO" \
-  --arg solution_commit "$SOLUTION_COMMIT" \
-  --arg solution_module "$SOLUTION_MODULE" \
-  --arg solution_digest "$SOLUTION_DIGEST" \
-  --arg allowed_axioms "$ALLOWED_AXIOMS" \
-  --arg lock_sha "$lock_sha" \
-  --slurpfile lock "$TOOLCHAIN_LOCK" \
-  '{
+    --arg theorem "$THEOREM" \
+    --arg challenge_repo "$CHALLENGE_REPO" \
+    --arg challenge_commit "$CHALLENGE_COMMIT" \
+    --arg challenge_module "$CHALLENGE_MODULE" \
+    --arg challenge_digest "$CHALLENGE_DIGEST" \
+    --arg solution_repo "$SOLUTION_REPO" \
+    --arg solution_commit "$SOLUTION_COMMIT" \
+    --arg solution_module "$SOLUTION_MODULE" \
+    --arg solution_digest "$SOLUTION_DIGEST" \
+    --arg allowed_axioms "$ALLOWED_AXIOMS" \
+    --arg lock_sha "$lock_sha" \
+    --slurpfile lock "$TOOLCHAIN_LOCK" \
+    '{
     verificationResult: "PASSED",
     theorem: $theorem,
     challenge: {
@@ -109,7 +109,7 @@ jq -n \
           }
       ]
     }
-  }' > "$out"
+  }' >"$out"
 
 # Strict schema validation; a malformed predicate must never reach the signer.
 check-jsonschema --schemafile "$SCHEMA_FILE" "$out"

@@ -31,8 +31,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write      # create the release and upload assets
-      id-token: write      # Sigstore signing for build provenance
+      contents: write # create the release and upload assets
+      id-token: write # Sigstore signing for build provenance
       attestations: write
     env:
       GH_TOKEN: ${{ github.token }}

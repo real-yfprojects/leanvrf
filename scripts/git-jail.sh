@@ -35,8 +35,11 @@ git_jail() {
     local mount_flag
     local -a net=()
     case "$access" in
-        fetch) mount_flag=--bind; net=(--share-net) ;;
-        read)  mount_flag=--ro-bind ;;
+        fetch)
+            mount_flag=--bind
+            net=(--share-net)
+            ;;
+        read) mount_flag=--ro-bind ;;
         *)
             echo "git_jail: access must be fetch or read, got '$access'" >&2
             return 1
@@ -64,23 +67,23 @@ git_jail() {
         --dev /dev \
         --chdir /repo \
         env -i \
-            PATH="/usr/bin:/bin" \
-            HOME="/tmp" \
-            GIT_CONFIG_GLOBAL=/dev/null \
-            GIT_CONFIG_SYSTEM=/dev/null \
-            GIT_CONFIG_NOSYSTEM=1 \
-            GIT_TERMINAL_PROMPT=0 \
-            GIT_ASKPASS=/bin/false \
-            GIT_CONFIG_COUNT=10 \
-            GIT_CONFIG_KEY_0=protocol.allow        GIT_CONFIG_VALUE_0=never \
-            GIT_CONFIG_KEY_1=protocol.https.allow  GIT_CONFIG_VALUE_1=always \
-            GIT_CONFIG_KEY_2=credential.helper     GIT_CONFIG_VALUE_2= \
-            GIT_CONFIG_KEY_3=core.hooksPath        GIT_CONFIG_VALUE_3=/dev/null \
-            GIT_CONFIG_KEY_4=core.askPass          GIT_CONFIG_VALUE_4=/bin/false \
-            GIT_CONFIG_KEY_5=submodule.recurse     GIT_CONFIG_VALUE_5=false \
-            GIT_CONFIG_KEY_6=transfer.fsckObjects  GIT_CONFIG_VALUE_6=true \
-            GIT_CONFIG_KEY_7=fetch.fsckObjects     GIT_CONFIG_VALUE_7=true \
-            GIT_CONFIG_KEY_8=http.sslVerify        GIT_CONFIG_VALUE_8=true \
-            GIT_CONFIG_KEY_9=advice.detachedHead   GIT_CONFIG_VALUE_9=false \
+        PATH="/usr/bin:/bin" \
+        HOME="/tmp" \
+        GIT_CONFIG_GLOBAL=/dev/null \
+        GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_CONFIG_NOSYSTEM=1 \
+        GIT_TERMINAL_PROMPT=0 \
+        GIT_ASKPASS=/bin/false \
+        GIT_CONFIG_COUNT=10 \
+        GIT_CONFIG_KEY_0=protocol.allow GIT_CONFIG_VALUE_0=never \
+        GIT_CONFIG_KEY_1=protocol.https.allow GIT_CONFIG_VALUE_1=always \
+        GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= \
+        GIT_CONFIG_KEY_3=core.hooksPath GIT_CONFIG_VALUE_3=/dev/null \
+        GIT_CONFIG_KEY_4=core.askPass GIT_CONFIG_VALUE_4=/bin/false \
+        GIT_CONFIG_KEY_5=submodule.recurse GIT_CONFIG_VALUE_5=false \
+        GIT_CONFIG_KEY_6=transfer.fsckObjects GIT_CONFIG_VALUE_6=true \
+        GIT_CONFIG_KEY_7=fetch.fsckObjects GIT_CONFIG_VALUE_7=true \
+        GIT_CONFIG_KEY_8=http.sslVerify GIT_CONFIG_VALUE_8=true \
+        GIT_CONFIG_KEY_9=advice.detachedHead GIT_CONFIG_VALUE_9=false \
         "$@"
 }

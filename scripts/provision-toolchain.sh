@@ -100,7 +100,7 @@ for ((i = 0; i < n; i++)); do
     fi
     case "$install" in
         toolchain) dest_dir="$LEAN_ROOT/bin" ;;
-        verifier)  dest_dir="$VERIFIER_BIN_DIR" ;;
+        verifier) dest_dir="$VERIFIER_BIN_DIR" ;;
         *)
             echo "Error: unknown install target '$install' for $name" >&2
             exit 1

@@ -15,7 +15,7 @@
     "properties": {
         "verificationResult": {
             "type": "string",
-            "enum": [ "PASSED", "FAILED" ],
+            "enum": ["PASSED", "FAILED"],
             "description": "Outcome of the verification. The workflow only signs PASSED predicates today, but verifiers MUST check this value explicitly rather than treating the existence of an attestation as success."
         },
         "theorem": {
@@ -35,7 +35,7 @@
         "policy": {
             "type": "object",
             "description": "Rules the verification was checked against. Fully determined by the workflow revision in the certificate; repeated here so consumers can read them without checking out the workflow repository.",
-            "required": [ "allowedAxioms" ],
+            "required": ["allowedAxioms"],
             "properties": {
                 "allowedAxioms": {
                     "type": "array",
@@ -52,20 +52,22 @@
         "toolchain": {
             "type": "object",
             "description": "The pinned Lean release and verifier binaries that performed the check, as listed in toolchain.lock of the workflow revision in the certificate.",
-            "required": [ "lock", "lean", "tools" ],
+            "required": ["lock", "lean", "tools"],
             "properties": {
                 "lock": {
                     "$ref": "#/$defs/HashedFile",
                     "description": "toolchain.lock from the trusted checkout. Its digest lets a verifier confirm `lean` and `tools` against the workflow repository with a single comparison."
                 },
                 "lean": {
-                    "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+                    "allOf": [
+                        { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" }
+                    ],
                     "description": "Lean release used to elaborate and export both packages and their dependencies.",
-                    "required": [ "name", "uri", "digest", "annotations" ],
+                    "required": ["name", "uri", "digest", "annotations"],
                     "properties": {
-                        "digest": { "required": [ "sha256" ] },
+                        "digest": { "required": ["sha256"] },
                         "annotations": {
-                            "required": [ "version" ],
+                            "required": ["version"],
                             "properties": {
                                 "version": {
                                     "type": "string",
@@ -82,17 +84,24 @@
                     "minItems": 1,
                     "description": "Prebuilt binaries that exported the packages and independently checked the solution. Entries flagged `engine` are the checkers the 1-out-of-n trust assumption ranges over.",
                     "items": {
-                        "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
-                        "required": [ "name", "uri", "digest", "annotations" ],
+                        "allOf": [
+                            {
+                                "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor"
+                            }
+                        ],
+                        "required": ["name", "uri", "digest", "annotations"],
                         "properties": {
-                            "digest": { "required": [ "sha256" ] },
+                            "digest": { "required": ["sha256"] },
                             "annotations": {
-                                "required": [ "repository", "commit", "engine" ],
+                                "required": ["repository", "commit", "engine"],
                                 "properties": {
                                     "patches": {
                                         "type": "array",
                                         "minItems": 1,
-                                        "items": { "type": "string", "minLength": 1 },
+                                        "items": {
+                                            "type": "string",
+                                            "minLength": 1
+                                        },
                                         "description": "Patch files, as paths in the workflow repository at the attested commit, applied to the source checkout before building. Absent when the tool was built from the upstream commit unmodified."
                                     },
                                     "repository": {
@@ -121,26 +130,26 @@
     "additionalProperties": false,
     "$defs": {
         "HashedFile": {
-            "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+            "allOf": [{ "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" }],
             "description": "A ResourceDescriptor that must name the file and carry its sha256, so a verifier can bind it to a file they hold.",
-            "required": [ "name", "digest" ],
+            "required": ["name", "digest"],
             "properties": {
-                "digest": { "required": [ "sha256" ] }
+                "digest": { "required": ["sha256"] }
             }
         },
         "GitCheckout": {
-            "allOf": [ { "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" } ],
+            "allOf": [{ "$ref": "in-toto-v1.json#/$defs/ResourceDescriptor" }],
             "description": "A git repository at one commit. `uri` is where the workflow fetched it from and is only a locator: any repository serving the same commit yields the same tree. `digest.gitCommit` is the commit id (SHA-1 or SHA-256 repository format) and the identity a verifier compares against their own clone. `digest.sha256` is the tree digest computed by scripts/tree-digest.sh of the workflow repository: the sha256 over the lines `<mode> <sha256 of blob content> <path>` (one per blob of `git ls-tree -r <commit>`, in git's order, newline-terminated). It binds every path, mode and byte of the tree independently of SHA-1 and is the subject under which the attestation is published.",
-            "required": [ "name", "uri", "digest", "annotations" ],
+            "required": ["name", "uri", "digest", "annotations"],
             "properties": {
                 "digest": {
-                    "required": [ "gitCommit", "sha256" ],
+                    "required": ["gitCommit", "sha256"],
                     "properties": {
                         "gitCommit": { "$ref": "in-toto-v1.json#/$defs/gitOid" }
                     }
                 },
                 "annotations": {
-                    "required": [ "module" ],
+                    "required": ["module"],
                     "properties": {
                         "module": {
                             "type": "string",

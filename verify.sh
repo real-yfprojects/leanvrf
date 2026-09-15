@@ -1,1 +1,2 @@
-#  TODO script to verify an attestation
+#!/usr/bin/env bash
+# TODO script to verify an attestation

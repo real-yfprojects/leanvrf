@@ -1,0 +1,9 @@
+# zizmor (GitHub Actions security audit) configuration; run by pre-commit.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Every action, including GitHub's own, must be pinned to a commit id:
+        # the attested job.workflow_sha fixes this repository's files, and the
+        # actions they reference must be fixed just as firmly.
+        "*": hash-pin

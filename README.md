@@ -270,5 +270,27 @@ in [toolchain.lock](toolchain.lock) inside a network-less jail, so keep imports 
 <!-- TODO Document security considerations and mitigations -->
 <!-- TODO verifier script -->
 <!-- TODO resolve todos in workflow -->
-<!-- TODO add git pre-commit hooks to ensure formatting, pinned workflows, security related stuff, ... (and can be used in CI) -->
 <!-- TODO upstream on lean/comparator: request the option to provide exports directly -->
+
+## Development
+
+Checks run through [pre-commit](https://pre-commit.com) from
+[.pre-commit-config.yaml](.pre-commit-config.yaml); install them once with `pre-commit install`
+and they run on every `git commit`. The `lint` job of
+[test-scripts.yml](.github/workflows/test-scripts.yml) runs the identical configuration with
+`pre-commit run --all-files`, so CI enforces exactly what the hook does locally. Ubuntu 24.04
+and the GitHub runner image already have Python, Node and Go; pre-commit fetches the pinned tool
+versions itself.
+
+What the hooks enforce, and why:
+
+| Concern | Hooks |
+|---|---|
+| Formatting | `shfmt` (4-space, indented `case`) for shell; `prettier` for YAML and the JSON schemas; LF line endings, trailing whitespace, final newlines. `toolchain.lock` is kept in exactly the `jq` layout `build-tools.sh` emits; Markdown and `patches/` are not reformatted. |
+| Shell correctness | `shellcheck --severity=warning` on every script. |
+| Workflows | `actionlint` (syntax, expressions, `run:` blocks), `check-github-workflows` (schema), `zizmor` security audit with [.github/zizmor.yml](.github/zizmor.yml) requiring every `uses:` -- GitHub's own actions included -- to be pinned to a full commit id. |
+| Pins | [scripts/check-toolchain-lock.py](scripts/check-toolchain-lock.py): https URLs, 64-hex sha256s, tool URLs under `release_tag`, patches that exist. `requirements.txt` lines must carry `--hash=` continuations (`pip --require-hashes` in the attest job). The hook repositories themselves are pinned to commit ids with the release kept in a `# frozen:` comment; `check-frozen` verifies the two agree. |
+| Secrets | `gitleaks` over the working tree; `detect-private-key`. |
+
+Update hook versions with `pre-commit autoupdate --freeze` (keeps `rev:` a commit id);
+`toolchain.lock` is updated only via `build-tools.yml`.

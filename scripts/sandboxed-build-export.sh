@@ -65,7 +65,7 @@ while IFS= read -r line; do
         exit 1
     fi
     targets+=("$line")
-done < "$targets_file"
+done <"$targets_file"
 if [ "${#targets[@]}" -eq 0 ]; then
     echo "Error: no export targets" >&2
     exit 1
@@ -98,7 +98,7 @@ if ! bwrap \
     --chdir /work \
     env -i PATH="/opt/lean/bin:/usr/bin:/bin" HOME="/tmp" LEAN_ABORT_ON_PANIC=1 \
     /bin/sh -c 'mod="$1"; shift; lake build --no-cache "$mod" >&2 && exec lake env lean4export "$mod" -- "$@"' \
-    sh "$module" "${targets[@]}" > "$export_out"; then
+    sh "$module" "${targets[@]}" >"$export_out"; then
     rm -f "$export_out"
     echo "Error: building or exporting $module failed" >&2
     exit 1
@@ -107,4 +107,4 @@ if [ ! -s "$export_out" ]; then
     echo "Error: export of $module is empty" >&2
     exit 1
 fi
-echo "Exported $module: $(wc -c < "$export_out") bytes"
+echo "Exported $module: $(wc -c <"$export_out") bytes"

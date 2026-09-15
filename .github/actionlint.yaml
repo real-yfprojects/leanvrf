@@ -1,0 +1,9 @@
+# actionlint configuration; run by pre-commit.
+paths:
+  .github/workflows/leanvfy.yml:
+    ignore:
+      # job.workflow_repository / job.workflow_sha are documented properties of
+      # the `job` context (they identify the *called* reusable workflow, which
+      # is what the attestation certifies) that actionlint 1.7.12 does not know
+      # yet. Nothing else about the `job` context is ignored.
+      - '^property "workflow_(repository|sha)" is not defined in object type '

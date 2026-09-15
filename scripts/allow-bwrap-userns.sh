@@ -51,15 +51,15 @@ profile bwrap /usr/bin/bwrap flags=(unconfined) {
 EOF
     sudo apparmor_parser -r "$profile_file"
     echo "AppArmor: /usr/bin/bwrap may create user namespaces; restriction kept at" \
-         "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo '?') for everything else"
+        "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo '?') for everything else"
 else
     echo "AppArmor not enabled; nothing to change"
 fi
 
 # The flags below are the ones fetch-repo.sh and sandboxed-comparator.sh use.
 if ! bwrap --unshare-all --unshare-user --disable-userns --die-with-parent \
-        --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \
-        -- /bin/true; then
+    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \
+    -- /bin/true; then
     echo "Error: bwrap cannot create its user namespaces on this machine" >&2
     exit 1
 fi
